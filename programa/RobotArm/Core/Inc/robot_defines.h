@@ -17,8 +17,8 @@ typedef struct {
     int direction;              // Dirección (0 o 1)
     int velocity;               // 0-100%
     int microStepping;          // Factor de división
-    int currentPosition;        // Pasos actuales
-    int newPosition;            // Meta
+    volatile int currentPosition;        // Pasos actuales
+    volatile int newPosition;            // Meta
     int stepCounter;            // Contador interno para el Timer
     int stepInterval;           // Ticks del timer entre pasos
     volatile int stopFlag;      // 1 = Detenido, 0 = Moviéndose

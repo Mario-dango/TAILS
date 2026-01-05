@@ -1,5 +1,5 @@
 ../Core/Src/robot_logic.c:32:6:Robot_Consignas	8	static
 ../Core/Src/robot_logic.c:40:9:Robot_ModoCalibracion	24	static
 ../Core/Src/robot_logic.c:109:9:Robot_ModoAprendizaje	32	static
-../Core/Src/robot_logic.c:134:9:Robot_ModoEjecucion	8	static
-../Core/Src/robot_logic.c:138:6:Robot_ProcesarComando	16	static
+../Core/Src/robot_logic.c:142:9:Robot_ModoEjecucion	32	static
+../Core/Src/robot_logic.c:179:6:Robot_ProcesarComando	16	static

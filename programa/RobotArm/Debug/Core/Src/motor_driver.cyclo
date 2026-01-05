@@ -3,5 +3,5 @@
 ../Core/Src/motor_driver.c:66:5:HomingMotors	18
 ../Core/Src/motor_driver.c:143:6:Motor_Timer_Callback	7
 ../Core/Src/motor_driver.c:172:6:Motor_Sensor_Triggered	5
-../Core/Src/motor_driver.c:201:5:targetComplete	3
-../Core/Src/motor_driver.c:209:7:deg2rad	1
+../Core/Src/motor_driver.c:194:5:targetComplete	3
+../Core/Src/motor_driver.c:202:7:deg2rad	1
