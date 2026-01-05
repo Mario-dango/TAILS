@@ -1,77 +1,376 @@
+from PyQt5.QtCore import QThread, pyqtSignal, Qt, QTimer # <--- Agrega QTimer
+from PyQt5.QtWidgets import QMessageBox, QTableWidgetItem, QFileDialog # <--- Agrega QFileDialog
+from view import View
 from model import Model
-from PyQt5.QtCore import QTimer
-from PyQt5.QtWidgets import QMessageBox
-from view import View, ViewUpdater
+import time
+
+# --- Hilo Trabajador Serial (Sin cambios) ---
+class SerialWorker(QThread):
+    data_received = pyqtSignal(str) 
+    def __init__(self, serial_port):
+        super().__init__()
+        self.serial_port = serial_port
+        self.is_running = True
+    def run(self):
+        while self.is_running and self.serial_port and self.serial_port.is_open:
+            try:
+                if self.serial_port.in_waiting > 0:
+                    line = self.serial_port.readline().decode('utf-8', errors='ignore').strip()
+                    if line: self.data_received.emit(line)
+            except: break
+            time.sleep(0.01)
+    def stop(self):
+        self.is_running = False
+        self.quit()
+        self.wait()
 
 class Controller:
     def __init__(self):
         self.model = Model()
         self.view = View()
-        self.view_updater = ViewUpdater(self.view)
-        
-        # Temporizador
-        self.receive_timer = QTimer()
-        self.receive_timer.timeout.connect(self.receive_data)
-        self.serial_port = None
-        
-        self.setup_ui()
-        self.setup_signals()
+        self.worker = None 
 
-    def setup_ui(self):
+        # Variables de Ejecución
+        self.loaded_routine = []
+        self.execution_index = 0
+        self.is_executing = False
+        self.run_timer = QTimer()
+        self.run_timer.timeout.connect(self.execute_next_step)
+
+        # --- ESTADO INTERNO DEL ROBOT (Shadow Registers) ---
+        # Asumimos que al conectar o hacer Home estamos en 0,0,0
+        self.current_pos = {'x': 0, 'y': 0, 'z': 0}
+        self.gripper_state = 'A' # A = Abierto, C = Cerrado
+
+        self.init_control()
+
+    def init_control(self):
         self.view.show()
-        self.update_available_ports()
+        self.refresh_ports()
 
-    def setup_signals(self):
-        # Botones existentes
-        self.view.button_send.clicked.connect(self.send_data)
-        self.view.button_refresh.clicked.connect(self.update_available_ports)
+        # --- CONEXIONES BASICAS ---
+        self.view.combo_ports.mousePressEvent = lambda e: self.refresh_ports()
+        self.view.btn_connect.clicked.connect(self.toggle_connection)
         
-        # NUEVO: Conectar botón Limpiar
-        self.view.button_clear.clicked.connect(self.clear_console)
+        # Consola
+        self.view.btn_send_console.clicked.connect(self.handle_console_send)
+        self.view.input_console.returnPressed.connect(self.handle_console_send)
+        self.view.btn_clear_console.clicked.connect(self.view.txt_console.clear)
+        self.view.btn_estop.clicked.connect(self.emergency_stop)
         
-        # NUEVO: Enviar al presionar Enter en el campo de texto
-        self.view.text_input.returnPressed.connect(self.send_data)
+        # Calibración
+        self.view.btn_home.clicked.connect(self.handle_home)
+        self.view.btn_setzero.clicked.connect(self.handle_set_zero)
+        self.view.chk_enable.toggled.connect(self.handle_enable_motor)
+        
+        # Config Garra
+        self.view.btn_set_open.clicked.connect(lambda: self.send_command(f":-A{self.view.input_angle_open.text()}"))
+        self.view.btn_set_close.clicked.connect(lambda: self.send_command(f":-P{self.view.input_angle_close.text()}"))
 
-    def update_available_ports(self):
-        ports = self.model.get_available_ports()
-        self.view_updater.update_ports(ports)
+        # --- CONEXIONES DE APRENDIZAJE (JOGGING) ---
+        # Conectamos cada botón a una función helper con sus argumentos
+        self.view.btn_x_plus.clicked.connect(lambda: self.handle_jog('x', 1))
+        self.view.btn_x_minus.clicked.connect(lambda: self.handle_jog('x', -1))
+        self.view.btn_y_plus.clicked.connect(lambda: self.handle_jog('y', 1))
+        self.view.btn_y_minus.clicked.connect(lambda: self.handle_jog('y', -1))
+        self.view.btn_z_plus.clicked.connect(lambda: self.handle_jog('z', 1))
+        self.view.btn_z_minus.clicked.connect(lambda: self.handle_jog('z', -1))
+        
+        # Garra Manual
+        self.view.btn_open_grip.clicked.connect(lambda: self.handle_gripper('A'))
+        self.view.btn_close_grip.clicked.connect(lambda: self.handle_gripper('C'))
 
-    def send_data(self):
-        selected_port = self.view_updater.get_selected_port()
-        data = self.view_updater.get_input_data()
+        # Lista de Puntos
+        self.view.btn_add_point.clicked.connect(self.add_point_to_table)
+        self.view.btn_del_point.clicked.connect(self.delete_point_from_table)
+        self.view.btn_save_file.clicked.connect(self.save_routine_json)
 
-        if not selected_port:
-            QMessageBox.warning(self.view, "Advertencia", "Por favor, selecciona un puerto COM.")
+        # Nuevos botones de Home Parcial
+        self.view.btn_home_xy.clicked.connect(self.handle_go_zero_xy)
+        self.view.btn_home_z.clicked.connect(self.handle_go_zero_z)
+
+        # Ejecución
+        self.view.btn_load_file.clicked.connect(self.load_routine_dialog)
+        self.view.btn_play.clicked.connect(self.start_execution)
+        self.view.btn_stop_run.clicked.connect(self.stop_execution)
+        self.view.btn_pause.clicked.connect(self.pause_execution)
+
+    # --- LÓGICA DE MOVIMIENTO (JOGGING) ---
+    def handle_jog(self, axis, direction):
+        if not self.model.is_connected():
+            self.log_console("ERROR", "Conecta el robot primero.")
             return
 
-        # Lógica de conexión (con las correcciones que vimos antes)
-        if not self.serial_port or (hasattr(self.serial_port, 'port') and selected_port != self.serial_port.port):
-            if self.serial_port:
-                self.model.close_port()
+        # 1. Obtener incremento seleccionado (1, 10, 50)
+        step_deg = self.view.step_group.checkedId()
+        
+        # 2. Calcular nueva posición
+        # Nota: Aquí sumamos el incremento a la posición que 'creemos' que tiene el robot
+        new_val = self.current_pos[axis] + (step_deg * direction)
+        
+        # (Opcional) Limitar rangos si quisieras (ej: 0 a 180)
+        # if new_val < 0: new_val = 0
+        
+        # 3. Actualizar registro interno
+        self.current_pos[axis] = new_val
+        
+        # 4. Enviar Comando (Ej: :#X100)
+        # Nota: Usamos el modo ejecución (#) con velocidad por defecto
+        cmd = f":#{axis.upper()}{new_val}"
+        self.send_command(cmd)
+        
+        # 5. Actualizar Displays (Visualmente)
+        self.update_lcds()
 
-            new_port_obj = self.model.open_serial_port(selected_port)
-            if new_port_obj is None:
-                QMessageBox.critical(self.view, "Error", f"No se pudo abrir el puerto {selected_port}")
-                return
+    def handle_go_zero_xy(self):
+        # Mover a X0 Y0 (Ejecución absoluta)
+        cmd = ":#X0Y0"
+        self.send_command(cmd)
+        # Actualizamos registros sombra
+        self.current_pos['x'] = 0
+        self.current_pos['y'] = 0
+        self.update_lcds()
+        self.log_console("INFO", "Moviendo a X0 Y0...")
+
+    def handle_go_zero_z(self):
+        # Mover a Z0
+        cmd = ":#Z0"
+        self.send_command(cmd)
+        self.current_pos['z'] = 0
+        self.update_lcds()
+        self.log_console("INFO", "Moviendo a Z0...")
+
+    def handle_gripper(self, action):
+        # action es 'A' o 'C'
+        self.gripper_state = action
+        cmd = f":#{action}" # :#A o :#C
+        self.send_command(cmd)
+
+    def handle_home(self):
+        self.send_command(":-H")
+        # Al hacer home, asumimos que todo vuelve a 0
+        self.current_pos = {'x': 0, 'y': 0, 'z': 0}
+        self.update_lcds()
+
+    def handle_set_zero(self):
+        self.send_command(":-Z")
+        self.current_pos = {'x': 0, 'y': 0, 'z': 0}
+        self.update_lcds()
+
+    def update_lcds(self):
+        self.view.lcd_x.display(self.current_pos['x'])
+        self.view.lcd_y.display(self.current_pos['y'])
+        self.view.lcd_z.display(self.current_pos['z'])
+
+    # --- GESTIÓN DE LA TABLA DE PUNTOS ---
+    def add_point_to_table(self):
+        # Obtener datos actuales
+        x = self.current_pos['x']
+        y = self.current_pos['y']
+        z = self.current_pos['z']
+        g = self.gripper_state
+        
+        row_pos = self.view.table_points.rowCount()
+        self.view.table_points.insertRow(row_pos)
+        
+        # Insertar celdas
+        self.view.table_points.setItem(row_pos, 0, QTableWidgetItem(str(x)))
+        self.view.table_points.setItem(row_pos, 1, QTableWidgetItem(str(y)))
+        self.view.table_points.setItem(row_pos, 2, QTableWidgetItem(str(z)))
+        self.view.table_points.setItem(row_pos, 3, QTableWidgetItem(g))
+        
+        self.log_console("INFO", f"Punto agregado: X{x} Y{y} Z{z} {g}")
+
+    def delete_point_from_table(self):
+        current_row = self.view.table_points.currentRow()
+        if current_row >= 0:
+            self.view.table_points.removeRow(current_row)
+
+    def save_routine_json(self):
+        rows = self.view.table_points.rowCount()
+        if rows == 0:
+            QMessageBox.warning(self.view, "Aviso", "La lista está vacía.")
+            return
+
+        routine = []
+        for i in range(rows):
+            p = {
+                "type": "MOV",
+                "x": int(self.view.table_points.item(i, 0).text()),
+                "y": int(self.view.table_points.item(i, 1).text()),
+                "z": int(self.view.table_points.item(i, 2).text()),
+                "g": self.view.table_points.item(i, 3).text()
+            }
+            routine.append(p)
             
-            self.serial_port = new_port_obj
-            if not self.receive_timer.isActive():
-                self.receive_timer.start(100)
+        # ABRIR DIÁLOGO DE SISTEMA
+        options = QFileDialog.Options()
+        file_path, _ = QFileDialog.getSaveFileName(
+            self.view, 
+            "Guardar Rutina", 
+            "", 
+            "Archivos JSON (*.json);;Todos (*)", 
+            options=options
+        )
+        
+        if file_path:
+            # Asegurar extensión
+            if not file_path.endswith('.json'):
+                file_path += '.json'
+                
+            if self.model.save_routine_to_file(file_path, routine):
+                self.log_console("INFO", f"Rutina guardada en: {file_path}")
+            else:
+                self.log_console("ERROR", "No se pudo guardar el archivo.")
+    
+    # --- FUNCIONES BASE ---
+    def refresh_ports(self):
+        current = self.view.combo_ports.currentText()
+        ports = self.model.get_available_ports()
+        self.view.combo_ports.clear()
+        self.view.combo_ports.addItems(ports)
+        if current in ports: self.view.combo_ports.setCurrentText(current)
 
-        self.model.send_data(selected_port, data)
-        self.view_updater.append_output_text(f"TX: {data}")
-        self.view_updater.clear_input_data()
+    def toggle_connection(self):
+        if self.model.is_connected():
+            if self.worker: self.worker.stop(); self.worker = None
+            self.model.disconnect_port()
+            self.view.btn_connect.setText("Conectar"); self.view.btn_connect.setChecked(False)
+            self.view.combo_ports.setEnabled(True)
+            self.log_console("INFO", "Desconectado.")
+        else:
+            port = self.view.combo_ports.currentText()
+            if not port: return
+            if self.model.connect_port(port):
+                self.view.btn_connect.setText("Desconectar"); self.view.btn_connect.setChecked(True)
+                self.view.combo_ports.setEnabled(False)
+                self.log_console("INFO", f"Conectado a {port}")
+                self.worker = SerialWorker(self.model.serial_port)
+                self.worker.data_received.connect(self.process_serial_data)
+                self.worker.start()
 
-    def receive_data(self):
-        received_data = self.model.receive_data()
-        if received_data:
-            self.view_updater.append_output_text(f"RX: {received_data}")
+    def send_command(self, cmd):
+        if self.model.send_data(cmd):
+            self.log_console("TX", cmd)
+        else:
+            self.log_console("ERROR", "No conectado.")
+
+    def handle_console_send(self):
+        cmd = self.view.input_console.text()
+        if cmd: self.send_command(cmd); self.view.input_console.clear()
+        
+    def handle_enable_motor(self, checked):
+        self.send_command(":-E1" if checked else ":-E0")
+
+    def emergency_stop(self):
+        self.send_command(":-S")
+        self.log_console("ALERTA", "STOP ENVIADO")
+
+    def process_serial_data(self, data):
+        self.log_console("RX", data)
+        # Aquí irá el parser del estado de sensores más adelante
+
+    def log_console(self, prefix, message):
+        color = "#ffffff"
+        if prefix == "TX": color = "#00aaff"
+        elif prefix == "RX": color = "#00ff00"
+        elif prefix == "ERROR": color = "#ff3333"
+        elif prefix == "INFO": color = "#ffff00"
+        self.view.txt_console.append(f'<span style="color:{color}"><b>[{prefix}]</b> {message}</span>')
+
+        # --- LÓGICA DE EJECUCIÓN ---
+    def load_routine_dialog(self):
+        options = QFileDialog.Options()
+        file_path, _ = QFileDialog.getOpenFileName(
+            self.view, 
+            "Cargar Rutina", 
+            "", 
+            "Archivos JSON (*.json)", 
+            options=options
+        )
+        
+        if file_path:
+            data = self.model.load_routine_from_file(file_path)
+            if data is not None:
+                self.loaded_routine = data
+                self.view.lbl_file.setText(f"Archivo: {file_path.split('/')[-1]}")
+                self.view.progress_bar.setValue(0)
+                self.view.txt_run_log.append(f"Rutina cargada: {len(data)} pasos.")
+                self.log_console("INFO", f"Cargada rutina con {len(data)} pasos.")
+            else:
+                QMessageBox.critical(self.view, "Error", "Archivo inválido o corrupto.")
+
+    def start_execution(self):
+        if not self.loaded_routine:
+            QMessageBox.warning(self.view, "Error", "No hay rutina cargada.")
+            return
+        
+        if not self.model.is_connected():
+            QMessageBox.warning(self.view, "Error", "Conecta el robot primero.")
+            return
+
+        self.is_executing = True
+        self.view.txt_run_log.append("--- INICIANDO EJECUCIÓN ---")
+        
+        # Si estaba pausado, continuamos; si no, desde cero
+        # (Aquí simplificamos: siempre desde cero si le das a Play salvo pausa)
+        if self.execution_index >= len(self.loaded_routine):
+            self.execution_index = 0
             
-    # NUEVO: Método para ejecutar la limpieza
-    def clear_console(self):
-        self.view_updater.clear_output_text()
+        self.run_timer.start(1500) # Enviar un comando cada 1500ms (1.5s)
+        self.execute_next_step() # Ejecutar el primero inmediatamente
 
-    def cleanup(self):
-        if self.serial_port:
-            self.model.close_port()
-        self.receive_timer.stop()
+    def pause_execution(self):
+        self.is_executing = False
+        self.run_timer.stop()
+        self.view.txt_run_log.append("--- PAUSADO ---")
+
+    def stop_execution(self):
+        self.is_executing = False
+        self.run_timer.stop()
+        self.execution_index = 0
+        self.view.progress_bar.setValue(0)
+        self.view.txt_run_log.append("--- DETENIDO ---")
+        self.send_command(":-S") # Paro de seguridad por si acaso
+
+    def execute_next_step(self):
+        if not self.is_executing: return
+
+        if self.execution_index < len(self.loaded_routine):
+            step = self.loaded_routine[self.execution_index]
+            
+            # Construir comando según tipo
+            cmd = ""
+            desc = ""
+            
+            if step['type'] == 'MOV':
+                # Nota: Asumimos velocidad por defecto del firmware
+                cmd = f":#X{step['x']}Y{step['y']}Z{step['z']}"
+                desc = f"Moviendo a X{step['x']} Y{step['y']} Z{step['z']}"
+                # Actualizar Shadow Registers para que LCDs se muevan
+                self.current_pos['x'] = step['x']
+                self.current_pos['y'] = step['y']
+                self.current_pos['z'] = step['z']
+                
+                # Manejo de Garra en el mismo paso si aplica
+                if 'g' in step:
+                    gripper_cmd = "C" if step['g'] == 'C' else "A"
+                    cmd += f"|{gripper_cmd}" # Concatenar comando garra si tu firmware lo soporta así
+                    # OJO: Si tu firmware no soporta X..|C juntos, habría que dividirlo.
+                    # Por ahora asumimos que tu lógica de Robot_ModoEjecucion maneja ambos.
+            
+            self.send_command(cmd)
+            self.view.txt_run_log.append(f"Paso {self.execution_index + 1}: {desc}")
+            self.update_lcds()
+            
+            # Actualizar progreso
+            self.execution_index += 1
+            prog = int((self.execution_index / len(self.loaded_routine)) * 100)
+            self.view.progress_bar.setValue(prog)
+            
+        else:
+            # Fin de rutina
+            self.stop_execution()
+            self.view.txt_run_log.append("--- RUTINA COMPLETADA ---")
+            self.view.progress_bar.setValue(100)
+            QMessageBox.information(self.view, "Fin", "Ejecución finalizada con éxito.")

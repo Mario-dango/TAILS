@@ -13,6 +13,8 @@
 #include "lcd_i2c.h" // Asumiendo que tienes este archivo en Inc
 
 // --- Variables Externas (Viven en main.c) ---
+extern uint8_t robotCalibrated;
+extern StepperMotor motors[];
 extern char buffer_rx[40];
 extern char buffer_tx[60];
 extern char buffer_data[4][6];
@@ -38,72 +40,115 @@ void Robot_Consignas(void){
 }
 
 uint8_t Robot_ModoCalibracion(void){
-      // CASO DE HOMING
+
+      // 1. COMANDO HOMING (:-H)
+      // Busca los sensores físicos para establecer el cero real de máquina.
       if (buffer_rx[2] == 'H'){
-          HAL_GPIO_WritePin(Wait_led_GPIO_Port, Wait_led_Pin, SET);
-          HAL_GPIO_WritePin(Finish_led_GPIO_Port, Finish_led_Pin, RESET);
+          HAL_GPIO_WritePin(Wait_led_GPIO_Port, Wait_led_Pin, GPIO_PIN_SET); // LED indicando ocupado
 
+          robotCalibrated = 0; // Desactivar visualización de coordenadas en LCD
+
+          // Imprimimos en LCD
           Lcd_Clear();
-          Lcd_Set_Cursor(1,1); Lcd_Send_String("Start Homing");
+          Lcd_Set_Cursor(1,1); Lcd_Send_String("Homing...");
 
-          Gripper_Close(); // Usando el nuevo driver
-          robotCalibrated = 0; // Mientras se mueve, es desconocido
-
-          // Llamada al driver de homing
+          // Ejecutar rutina de Homing (bloqueante)
           homeStatus_Local = HomingMotors(&homeMotor_X, &homeMotor_Y, &homeMotor_Z);
 
-          Lcd_Clear();
           if (homeStatus_Local == 0){
-        	  robotCalibrated = 1; // <--- ¡ÉXITO!
-              sprintf(buffer_tx, "Home exitoso!\r\n"); USB_Print(buffer_tx);
+              // Éxito: Los contadores internos ya se pusieron a 0 dentro del driver
+              robotCalibrated = 1; // Activamos LCD con coordenadas
+
+              sprintf(buffer_tx, "Homing OK\r\n"); USB_Print(buffer_tx);
               Lcd_Set_Cursor(1,1); Lcd_Send_String("Home Status: OK");
-              HAL_GPIO_WritePin(Home_led_GPIO_Port, Home_led_Pin, SET);
+              HAL_GPIO_WritePin(Home_led_GPIO_Port, Home_led_Pin, GPIO_PIN_SET);
           } else {
-              sprintf(buffer_tx, "Falla Home Error: %d\r\n", homeStatus_Local); USB_Print(buffer_tx);
+              sprintf(buffer_tx, "Homing Error: %d\r\n", homeStatus_Local); USB_Print(buffer_tx);
               Lcd_Set_Cursor(1,1); Lcd_Send_String("Home Error!");
           }
+
+          HAL_GPIO_WritePin(Wait_led_GPIO_Port, Wait_led_Pin, GPIO_PIN_RESET);
           return 0;
       }
 
-      // CASO VELOCIDAD GLOBAL (:-V058)
-      else if (buffer_rx[2] == 'V'){
-          CDC_FS_Substring(3, 5, buffer_rx, buffer_data[0]);
-          uint8_t velocidad = (uint8_t)atoi(buffer_data[0]);
-          if (velocidad <= 100){
-              int vel = velocidad;
-              // Actualizamos todos los motores
-              for(int i=0; i<NUM_MOTORS; i++) moveMotors(&motors[i], 0, &vel);
+      // 2. COMANDO SET ZERO (:-Z)
+      // Fuerza la posición actual como el nuevo (0,0,0) LÓGICO.
+      else if (buffer_rx[2] == 'Z'){
 
-              sprintf(buffer_tx, "Velocidad global: %d%%\r\n", velocidad); USB_Print(buffer_tx);
+          // Resetear variables de posición de todos los motores
+          for(int i=0; i<NUM_MOTORS; i++){
+              motors[i].currentPosition = 0;
+              motors[i].newPosition = 0;
+              // Opcional: Resetear acumuladores de pasos si tu driver los usa
+              motors[i].stepCounter = 0;
+          }
+
+          robotCalibrated = 1; // Ahora sí sabemos dónde estamos (en el 0)
+
+          sprintf(buffer_tx, "Set Zero OK. Posicion actual = 0,0,0\r\n");
+          USB_Print(buffer_tx);
+          return 0;
+      }
+
+      // 3. CONFIGURAR APERTURA GARRA (:-A120)
+      else if (buffer_rx[2] == 'A'){
+          int angulo = atoi(&buffer_rx[3]);
+          Gripper_SetOpenAngle((uint16_t)angulo);
+
+          sprintf(buffer_tx, "Config. Apertura: %d grados\r\n", angulo);
+          USB_Print(buffer_tx);
+          return 0;
+      }
+
+      // 4. CONFIGURAR CIERRE GARRA (:-P90)
+      else if (buffer_rx[2] == 'P'){
+          int angulo = atoi(&buffer_rx[3]);
+          Gripper_SetClosedAngle((uint16_t)angulo);
+
+          sprintf(buffer_tx, "Config. Cierre: %d grados\r\n", angulo);
+          USB_Print(buffer_tx);
+          return 0;
+      }
+
+      // 5. ENABLE/DISABLE MOTORES (:-E1 / :-E0)
+      else if (buffer_rx[2] == 'E'){
+          // Corregimos el índice del substring a (3, 4) para capturar el número
+          CDC_FS_Substring(3, 4, buffer_rx, buffer_data[0]);
+          int state = atoi(buffer_data[0]);
+
+          ActivatedAll(state); // 1=Enable, 0=Disable
+
+          sprintf(buffer_tx, "Motores Enable: %d\r\n", state);
+          USB_Print(buffer_tx);
+          return 0;
+      }
+
+      // 6. VELOCIDAD GLOBAL (:-V050)
+      else if (buffer_rx[2] == 'V'){
+          CDC_FS_Substring(3, 5, buffer_rx, buffer_data[0]); // Lee 2 dígitos (ej 50) o 3 (100)
+          int velocidad = atoi(buffer_data[0]);
+
+          if (velocidad > 0 && velocidad <= 100){
+              // Aplicamos velocidad base a todos (para movimientos manuales futuros)
+              for(int i=0; i<NUM_MOTORS; i++) {
+                   // Nota: Esto cambia la velocidad actual.
+                   // Si quieres solo cambiar la "por defecto", usa una variable global.
+                   // Pero cambiar la actual está bien si están parados.
+                   motors[i].velocity = velocidad;
+              }
+              sprintf(buffer_tx, "Velocidad Global: %d%%\r\n", velocidad); USB_Print(buffer_tx);
           }
           return 0;
       }
 
-      // CASO VELOCIDAD INDIVIDUAL (:-vX...)
-      else if (buffer_rx[2] == 'v'){
-           // (Aquí va tu lógica de parsing de velocidades individuales usando CDC_FS_Substring)
-           // ... recuerda usar moveMotors(&motors[i], 0, &vel_individual);
-           sprintf(buffer_tx, "Velocidades individuales seteadas.\r\n"); USB_Print(buffer_tx);
-           return 0;
-      }
-
-      // CASO ENABLE/DISABLE (:-E1 / :-E0)
-      else if (buffer_rx[2] == 'E'){
-          CDC_FS_Substring(3, 3, buffer_rx, buffer_data[0]);
-          int state = atoi(buffer_data[0]);
-          ActivatedAll(state);
-          sprintf(buffer_tx, "Motores estado: %d\r\n", state); USB_Print(buffer_tx);
-          return 0;
-      }
-
-      // CASO STOP (:-S)
+      // 7. STOP EMERGENCIA (:-S)
       else if (buffer_rx[2] == 'S'){
-          ActivatedAll(-1); // Parada emergencia
-          sprintf(buffer_tx, "STOP EMERGENCIA\r\n"); USB_Print(buffer_tx);
+          ActivatedAll(-1); // Función que deshabilita o para todo
+          sprintf(buffer_tx, "STOP CALIBRACION\r\n"); USB_Print(buffer_tx);
           return 0;
       }
 
-      return 1;
+      return 1; // Comando no reconocido en este modo
 }
 
 uint8_t Robot_ModoAprendizaje(void){
@@ -118,24 +163,6 @@ uint8_t Robot_ModoAprendizaje(void){
          int pX = posX; // Casting si es necesario
          moveMotors(&motors[0], &pX, 0);
     }
-    // CASO GRIPPER ('P')
-    else if (buffer_rx[2] == 'P'){
-        // buffer_rx[3] en adelante tiene el número (ej: "90" o "090")
-        int angulo = atoi(&buffer_rx[3]);
-        Gripper_SetClosedAngle((uint16_t)angulo);
-
-        sprintf(buffer_tx, "Angulo Cierre Set: %d\r\n", angulo);
-        USB_Print(buffer_tx);
-        return 0;
-    }
-    else if (buffer_rx[2] == 'A'){
-             int angulo = atoi(&buffer_rx[3]);
-             Gripper_SetOpenAngle((uint16_t)angulo);
-
-             sprintf(buffer_tx, "Angulo Apertura Set: %d\r\n", angulo);
-             USB_Print(buffer_tx);
-             return 0;
-	}
 
     return 1;
 }
