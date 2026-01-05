@@ -1,2 +1,3 @@
 ../Core/Src/comm_manager.c:12:6:USB_Print	3
-../Core/Src/comm_manager.c:27:6:CDC_FS_Substring	2
+../Core/Src/comm_manager.c:26:5:BuscarValor	2
+../Core/Src/comm_manager.c:35:6:CDC_FS_Substring	2

@@ -1,4 +1,6 @@
-../Core/Src/gripper_driver.c:14:6:Gripper_Init	8	static
-../Core/Src/gripper_driver.c:19:6:Gripper_SetAngle	24	static
-../Core/Src/gripper_driver.c:29:6:Gripper_Open	8	static
-../Core/Src/gripper_driver.c:34:6:Gripper_Close	8	static
+../Core/Src/gripper_driver.c:22:6:Gripper_Init	8	static
+../Core/Src/gripper_driver.c:27:6:Gripper_SetAngle	24	static
+../Core/Src/gripper_driver.c:37:6:Gripper_SetOpenAngle	16	static
+../Core/Src/gripper_driver.c:43:6:Gripper_Open	8	static
+../Core/Src/gripper_driver.c:48:6:Gripper_SetClosedAngle	16	static
+../Core/Src/gripper_driver.c:54:6:Gripper_Close	8	static

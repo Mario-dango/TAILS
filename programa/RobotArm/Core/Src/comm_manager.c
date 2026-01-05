@@ -23,6 +23,14 @@ void USB_Print(char *str) {
     } while(result == USBD_BUSY);
 }
 
+int BuscarValor(char letra, char* cadena) {
+    char* ptr = strchr(cadena, letra); // Busca la letra
+    if (ptr != NULL) {
+        return atoi(ptr + 1); // Convierte los números que siguen a la letra
+    }
+    return -1; // Retorna -1 si no encuentra la letra (o maneja el error como prefieras)
+}
+
 // Tu función original de Substring, movida aquí
 void CDC_FS_Substring(uint8_t inicioCadena, uint8_t finCadena, char* cadenaOriginal, char* cadenaCortada) {
     uint8_t pt = 0;

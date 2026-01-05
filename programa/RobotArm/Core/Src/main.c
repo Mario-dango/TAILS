@@ -158,7 +158,7 @@ int main(void)
   {
       // --- A. ATENCIÓN AL USB ---
 	  if(flagUsb == 1){
-		  HAL_GPIO_TogglePin(LedPcb_GPIO_Port, LedPcb_Pin);
+//		  HAL_GPIO_TogglePin(LedPcb_GPIO_Port, LedPcb_Pin);
 
 		  // Toda la lógica compleja se movió a robot_logic.c
 		  Robot_ProcesarComando(buffer_rx);

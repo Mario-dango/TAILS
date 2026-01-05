@@ -15,6 +15,9 @@
 // Prototipo de la función de impresión segura (bloqueante)
 void USB_Print(char *str);
 
+// Prototipo para buscar valores del String que recibe
+int BuscarValor(char letra, char* cadena);
+
 // Utilidad para cortar cadenas
 void CDC_FS_Substring(uint8_t inicioCadena, uint8_t finCadena, char* str, char* dst);
 

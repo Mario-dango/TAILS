@@ -117,22 +117,63 @@ uint8_t Robot_ModoAprendizaje(void){
          // Actualizar newPosition en motores
          int pX = posX; // Casting si es necesario
          moveMotors(&motors[0], &pX, 0);
-
-         // ... Repetir para Y y Z ...
     }
     // CASO GRIPPER ('P')
-    else if (buffer_rx[0] == 'P'){
-         CDC_FS_Substring(2, 4, buffer_rx, buffer_data[2]);
-         int angulo = atoi(buffer_data[2]);
-         Gripper_SetAngle(angulo);
-         sprintf(buffer_tx, "Gripper a %d grados\r\n", angulo); USB_Print(buffer_tx);
+    else if (buffer_rx[2] == 'P'){
+        // buffer_rx[3] en adelante tiene el número (ej: "90" o "090")
+        int angulo = atoi(&buffer_rx[3]);
+        Gripper_SetClosedAngle((uint16_t)angulo);
+
+        sprintf(buffer_tx, "Angulo Cierre Set: %d\r\n", angulo);
+        USB_Print(buffer_tx);
+        return 0;
     }
+    else if (buffer_rx[2] == 'A'){
+             int angulo = atoi(&buffer_rx[3]);
+             Gripper_SetOpenAngle((uint16_t)angulo);
+
+             sprintf(buffer_tx, "Angulo Apertura Set: %d\r\n", angulo);
+             USB_Print(buffer_tx);
+             return 0;
+	}
+
     return 1;
 }
-
-// Nota: Modo Ejecución suele ser igual a Aprendizaje pero quizás sin guardar datos
 uint8_t Robot_ModoEjecucion(void){
-    return Robot_ModoAprendizaje(); // Reutilizamos lógica si es idéntica
+    // Formato: :#X200|Y200|C
+
+    int x = BuscarValor('X', buffer_rx);
+    int y = BuscarValor('Y', buffer_rx);
+    int z = BuscarValor('Z', buffer_rx);
+
+    // DEFINIR UNA VELOCIDAD POR DEFECTO PARA MOVIMIENTOS
+    int velDefecto = 50; // 50% de velocidad (ajusta según necesites)
+
+    // Validamos que al menos se haya enviado alguna coordenada
+    if (x >= 0 || y >= 0 || z >= 0) {
+
+        // Al llamar a moveMotors, pasamos &velDefecto en lugar de 0
+        // Así aseguramos que el motor despierte del estado de reposo (vel=0)
+
+        if (x >= 0) moveMotors(&motors[0], &x, &velDefecto);
+        if (y >= 0) moveMotors(&motors[1], &y, &velDefecto);
+        if (z >= 0) moveMotors(&motors[2], &z, &velDefecto);
+
+        sprintf(buffer_tx, "Moviendo... X:%d Y:%d Z:%d V:%d\r\n", x, y, z, velDefecto);
+        USB_Print(buffer_tx);
+    }
+
+    // Control de Garra
+    if (strchr(buffer_rx, 'C') != NULL) {
+        Gripper_Close();
+        USB_Print("Garra: Cerrada\r\n");
+    }
+    else if (strchr(buffer_rx, 'A') != NULL) {
+        Gripper_Open();
+        USB_Print("Garra: Abierta\r\n");
+    }
+
+    return 0;
 }
 
 void Robot_ProcesarComando(char *cmd){
