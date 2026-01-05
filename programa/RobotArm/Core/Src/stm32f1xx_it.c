@@ -243,5 +243,20 @@ void TIM3_IRQHandler(void)
 }
 
 /* USER CODE BEGIN 1 */
+/**
+  * @brief This function handles External line[15:10] interrupts.
+  */
+void EXTI15_10_IRQHandler(void)
+{
+  // ES VITAL QUE ESTAS LÍNEAS ESTÉN AQUÍ
+  // El parámetro es el PIN que causó la interrupción.
+  // Como comparten vector, llamamos a todos los posibles o dejamos que HAL decida.
 
+  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_12); // Z
+  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_13); // Y
+  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_14); // X
+
+  // Si tienes el botón de STOP en otro pin (ej PB10 o PB11), agrégalo también:
+  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_15);
+}
 /* USER CODE END 1 */
