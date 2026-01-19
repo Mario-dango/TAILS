@@ -46,56 +46,68 @@ class Controller:
         self.update_ui_connection_state(False)
 
     def init_control(self):
-        self.view.show()
-        self.refresh_ports()
+            self.view.show()
+            self.refresh_ports()
 
-        # --- CONEXIONES BASICAS ---
-        self.view.combo_ports.mousePressEvent = lambda e: self.refresh_ports()
-        self.view.btn_connect.clicked.connect(self.toggle_connection)
-        self.view.combo_ports.mousePressEvent = lambda e: (self.refresh_ports(), self.update_ui_connection_state(self.model.is_connected()))
-        
-        # Consola
-        self.view.btn_send_console.clicked.connect(self.handle_console_send)
-        self.view.input_console.returnPressed.connect(self.handle_console_send)
-        self.view.btn_clear_console.clicked.connect(self.view.txt_console.clear)
-        self.view.btn_estop.clicked.connect(self.emergency_stop)
-        
-        # Calibración
-        self.view.btn_home.clicked.connect(self.handle_home)
-        self.view.btn_setzero.clicked.connect(self.handle_set_zero)
-        self.view.chk_enable.toggled.connect(self.handle_enable_motor)
-        
-        # Config Garra
-        self.view.btn_set_open.clicked.connect(lambda: self.send_command(f":-A{self.view.input_angle_open.text()}"))
-        self.view.btn_set_close.clicked.connect(lambda: self.send_command(f":-P{self.view.input_angle_close.text()}"))
+            # --- 1. SOLUCIÓN AL ERROR sipBadCatcherResult ---
+            # Guardamos la función original de Qt para que el combo box se pueda abrir
+            original_mouse_press = self.view.combo_ports.mousePressEvent
 
-        # --- CONEXIONES DE APRENDIZAJE (JOGGING) ---
-        # Conectamos cada botón a una función helper con sus argumentos
-        self.view.btn_x_plus.clicked.connect(lambda: self.handle_jog('x', 1))
-        self.view.btn_x_minus.clicked.connect(lambda: self.handle_jog('x', -1))
-        self.view.btn_y_plus.clicked.connect(lambda: self.handle_jog('y', 1))
-        self.view.btn_y_minus.clicked.connect(lambda: self.handle_jog('y', -1))
-        self.view.btn_z_plus.clicked.connect(lambda: self.handle_jog('z', 1))
-        self.view.btn_z_minus.clicked.connect(lambda: self.handle_jog('z', -1))
-        
-        # Garra Manual
-        self.view.btn_open_grip.clicked.connect(lambda: self.handle_gripper('A'))
-        self.view.btn_close_grip.clicked.connect(lambda: self.handle_gripper('C'))
+            def on_combo_click(event):
+                # Ejecutamos la lógica de refresco sin devolver tuplas
+                self.refresh_ports()
+                self.update_ui_connection_state(self.model.is_connected())
+                # Llamamos al evento original para que se despliegue la lista
+                original_mouse_press(event)
 
-        # Lista de Puntos
-        self.view.btn_add_point.clicked.connect(self.add_point_to_table)
-        self.view.btn_del_point.clicked.connect(self.delete_point_from_table)
-        self.view.btn_save_file.clicked.connect(self.save_routine_json)
+            # Asignamos la función local en lugar de los lambdas problemáticos
+            self.view.combo_ports.mousePressEvent = on_combo_click
 
-        # Nuevos botones de Home Parcial
-        self.view.btn_home_xy.clicked.connect(self.handle_go_zero_xy)
-        self.view.btn_home_z.clicked.connect(self.handle_go_zero_z)
+            # --- 2. CONEXIONES BÁSICAS ---
+            self.view.btn_connect.clicked.connect(self.toggle_connection)
+            
+            # Consola
+            self.view.btn_send_console.clicked.connect(self.handle_console_send)
+            self.view.input_console.returnPressed.connect(self.handle_console_send)
+            self.view.btn_clear_console.clicked.connect(self.view.txt_console.clear)
+            self.view.btn_estop.clicked.connect(self.emergency_stop)
+            
+            # Calibración
+            self.view.btn_home.clicked.connect(self.handle_home)
+            self.view.btn_setzero.clicked.connect(self.handle_set_zero)
+            self.view.chk_enable.toggled.connect(self.handle_enable_motor)
+            
+            # Config Garra
+            # Nota: Aquí los lambdas están bien porque connect() no espera un retorno específico
+            self.view.btn_set_open.clicked.connect(lambda: self.send_command(f":-A{self.view.input_angle_open.text()}"))
+            self.view.btn_set_close.clicked.connect(lambda: self.send_command(f":-P{self.view.input_angle_close.text()}"))
 
-        # Ejecución
-        self.view.btn_load_file.clicked.connect(self.load_routine_dialog)
-        self.view.btn_play.clicked.connect(self.start_execution)
-        self.view.btn_stop_run.clicked.connect(self.stop_execution)
-        self.view.btn_pause.clicked.connect(self.pause_execution)
+            # --- 3. CONEXIONES DE APRENDIZAJE (JOGGING) ---
+            self.view.btn_x_plus.clicked.connect(lambda: self.handle_jog('x', 1))
+            self.view.btn_x_minus.clicked.connect(lambda: self.handle_jog('x', -1))
+            self.view.btn_y_plus.clicked.connect(lambda: self.handle_jog('y', 1))
+            self.view.btn_y_minus.clicked.connect(lambda: self.handle_jog('y', -1))
+            self.view.btn_z_plus.clicked.connect(lambda: self.handle_jog('z', 1))
+            self.view.btn_z_minus.clicked.connect(lambda: self.handle_jog('z', -1))
+            
+            # Garra Manual
+            self.view.btn_open_grip.clicked.connect(lambda: self.handle_gripper('A'))
+            self.view.btn_close_grip.clicked.connect(lambda: self.handle_gripper('C'))
+
+            # Lista de Puntos
+            self.view.btn_add_point.clicked.connect(self.add_point_to_table)
+            self.view.btn_del_point.clicked.connect(self.delete_point_from_table)
+            self.view.btn_save_file.clicked.connect(self.save_routine_json)
+
+            # Nuevos botones de Home Parcial
+            self.view.btn_home_xy.clicked.connect(self.handle_go_zero_xy)
+            self.view.btn_home_z.clicked.connect(self.handle_go_zero_z)
+
+            # Ejecución
+            self.view.btn_load_file.clicked.connect(self.load_routine_dialog)
+            self.view.btn_play.clicked.connect(self.start_execution)
+            self.view.btn_stop_run.clicked.connect(self.stop_execution)
+            self.view.btn_pause.clicked.connect(self.pause_execution)
 
     def update_ui_connection_state(self, is_connected):
         """Bloquea o desbloquea los controles según el estado del hardware."""
