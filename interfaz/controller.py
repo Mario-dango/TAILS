@@ -43,6 +43,7 @@ class Controller:
         self.gripper_state = 'A' # A = Abierto, C = Cerrado
 
         self.init_control()
+        self.update_ui_connection_state(False)
 
     def init_control(self):
         self.view.show()
@@ -51,6 +52,7 @@ class Controller:
         # --- CONEXIONES BASICAS ---
         self.view.combo_ports.mousePressEvent = lambda e: self.refresh_ports()
         self.view.btn_connect.clicked.connect(self.toggle_connection)
+        self.view.combo_ports.mousePressEvent = lambda e: (self.refresh_ports(), self.update_ui_connection_state(self.model.is_connected()))
         
         # Consola
         self.view.btn_send_console.clicked.connect(self.handle_console_send)
@@ -94,6 +96,26 @@ class Controller:
         self.view.btn_play.clicked.connect(self.start_execution)
         self.view.btn_stop_run.clicked.connect(self.stop_execution)
         self.view.btn_pause.clicked.connect(self.pause_execution)
+
+    def update_ui_connection_state(self, is_connected):
+        """Bloquea o desbloquea los controles según el estado del hardware."""
+        # Pestaña de Ejecución
+        self.view.btn_load_file.setEnabled(is_connected)
+        self.view.btn_play.setEnabled(is_connected)
+        self.view.btn_pause.setEnabled(is_connected)
+        self.view.btn_stop_run.setEnabled(is_connected)
+        
+        # Pestaña de Aprendizaje (Opcional pero recomendado por seguridad)
+        self.view.btn_add_point.setEnabled(is_connected)
+        self.view.btn_save_file.setEnabled(is_connected)
+        
+        # Pestaña de Calibración
+        self.view.btn_home.setEnabled(is_connected)
+        self.view.btn_setzero.setEnabled(is_connected)
+        
+        # Si se desconecta, limpiar el label de archivo
+        if not is_connected:
+            self.view.lbl_file.setText("Archivo: Requiere Conexión")
 
     # --- LÓGICA DE MOVIMIENTO (JOGGING) ---
     def handle_jog(self, axis, direction):
@@ -164,7 +186,14 @@ class Controller:
 
     # --- GESTIÓN DE LA TABLA DE PUNTOS ---
     def add_point_to_table(self):
-        # Obtener datos actuales
+
+        # Validación de conexión previa a la captura
+        if not self.model.is_connected():
+            QMessageBox.warning(self.view, "Error de Conexión", 
+            "Debe conectar el robot para capturar una posición válida.")
+            return
+     
+        # Obtener datos actuales   
         x = self.current_pos['x']
         y = self.current_pos['y']
         z = self.current_pos['z']
@@ -187,6 +216,12 @@ class Controller:
             self.view.table_points.removeRow(current_row)
 
     def save_routine_json(self):
+
+        if not self.model.is_connected():
+            self.log_console("ERROR", "No se puede guardar la rutina: Conexión inactiva.")
+            QMessageBox.critical(self.view, "Error", "Debe estar conectado para exportar una rutina válida.")
+            return
+
         rows = self.view.table_points.rowCount()
         if rows == 0:
             QMessageBox.warning(self.view, "Aviso", "La lista está vacía.")
@@ -237,6 +272,7 @@ class Controller:
             self.model.disconnect_port()
             self.view.btn_connect.setText("Conectar"); self.view.btn_connect.setChecked(False)
             self.view.combo_ports.setEnabled(True)
+            self.update_ui_connection_state(False) # <--- BLOQUEAR
             self.log_console("INFO", "Desconectado.")
         else:
             port = self.view.combo_ports.currentText()
@@ -244,16 +280,25 @@ class Controller:
             if self.model.connect_port(port):
                 self.view.btn_connect.setText("Desconectar"); self.view.btn_connect.setChecked(True)
                 self.view.combo_ports.setEnabled(False)
+                self.update_ui_connection_state(True) # <--- DESBLOQUEAR
                 self.log_console("INFO", f"Conectado a {port}")
                 self.worker = SerialWorker(self.model.serial_port)
                 self.worker.data_received.connect(self.process_serial_data)
                 self.worker.start()
 
     def send_command(self, cmd):
+        
+        # Cláusula de guarda: Si no hay conexión, no hacemos nada ni logueamos error serial
+        if not self.model.is_connected():
+            # Opcional: Loguear solo en debug interno, no en la consola principal
+            self.log_console("ERROR", "No conectado.")
+            print(f"DEBUG: Intento de envío en modo offline: {cmd}")
+            return False
+
         if self.model.send_data(cmd):
             self.log_console("TX", cmd)
-        else:
-            self.log_console("ERROR", "No conectado.")
+            return True
+        return False
 
     def handle_console_send(self):
         cmd = self.view.input_console.text()
@@ -263,8 +308,12 @@ class Controller:
         self.send_command(":-E1" if checked else ":-E0")
 
     def emergency_stop(self):
-        self.send_command(":-S")
-        self.log_console("ALERTA", "STOP ENVIADO")
+        if self.model.is_connected():
+            self.send_command(":-S")
+            self.log_console("ALERTA", "STOP ENVIADO")
+        else:
+            # Informamos al usuario sin intentar una transmisión fallida
+            self.log_console("ERROR: ", "Robot no conectado.")
 
     def process_serial_data(self, data):
         self.log_console("RX", data)
@@ -280,6 +329,11 @@ class Controller:
 
         # --- LÓGICA DE EJECUCIÓN ---
     def load_routine_dialog(self):
+
+        if not self.model.is_connected():
+            QMessageBox.critical(self.view, "Error de Hardware", "No se puede acceder al sistema de archivos sin un robot vinculado.")
+            return
+        
         options = QFileDialog.Options()
         file_path, _ = QFileDialog.getOpenFileName(
             self.view, 
@@ -331,7 +385,12 @@ class Controller:
         self.execution_index = 0
         self.view.progress_bar.setValue(0)
         self.view.txt_run_log.append("--- DETENIDO ---")
-        self.send_command(":-S") # Paro de seguridad por si acaso
+
+        # Solo enviamos el comando de seguridad si el hardware está presente
+        if self.model.is_connected():
+            self.send_command(":-S")
+        else:
+            self.log_console("INFO", "Ejecución de software detenida (Hardware desconectado).")
 
     def execute_next_step(self):
         if not self.is_executing: return
