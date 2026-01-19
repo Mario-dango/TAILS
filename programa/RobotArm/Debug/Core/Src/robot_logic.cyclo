@@ -1,0 +1,5 @@
+../Core/Src/robot_logic.c:32:6:Robot_Consignas	1
+../Core/Src/robot_logic.c:40:9:Robot_ModoCalibracion	9
+../Core/Src/robot_logic.c:109:9:Robot_ModoAprendizaje	4
+../Core/Src/robot_logic.c:142:9:Robot_ModoEjecucion	9
+../Core/Src/robot_logic.c:179:6:Robot_ProcesarComando	7

@@ -1,31 +1,61 @@
+import serial
 import serial.tools.list_ports
-
+import json
 
 class Model:
     def __init__(self):
-        self.ports = []
         self.serial_port = None
+        self.baud_rate = 115200
 
     def get_available_ports(self):
         ports = serial.tools.list_ports.comports()
-        self.ports = [port.device for port in ports]
-        return self.ports
+        return [port.device for port in ports]
 
-    def send_data(self, port, data):
-        if self.serial_port is not None:            
+    def connect_port(self, port_name):
+        try:
+            if self.serial_port and self.serial_port.is_open:
+                self.serial_port.close()
+                
+            self.serial_port = serial.Serial(port_name, self.baud_rate, timeout=1.0)
+            return True
+        except serial.SerialException as e:
+            print(f"Error abriendo puerto: {e}")
+            return False
+
+    def disconnect_port(self):
+        if self.serial_port and self.serial_port.is_open:
+            self.serial_port.close()
+            self.serial_port = None
+
+    def is_connected(self):
+        return self.serial_port is not None and self.serial_port.is_open
+
+    def send_data(self, data):
+        if self.is_connected():
             try:
-                string_byte = data.encode('utf-8')
-                self.serial_port.write(string_byte)
-            except:
-                print('An exception occurred')
-        # Aquí puedes agregar la lógica para enviar los datos al puerto COM seleccionado
-    
-    def open_serial_port(self, port):
-        self.serial_port = serial.Serial(port, 115200)  # Configura el puerto con la velocidad de transmisión adecuada
+                # Aseguramos salto de línea y encoding
+                if not data.endswith('\n'):
+                    data += '\n'
+                self.serial_port.write(data.encode('utf-8'))
+                return True
+            except Exception as e:
+                print(f"Error enviando: {e}")
+        return False
 
-    def receive_data(self):
-        if self.serial_port:
-            received_data = self.serial_port.read_all().decode()
-            return received_data
+    # --- GESTIÓN DE ARCHIVOS (JSON) ---
+    def save_routine_to_file(self, filename, routine_data):
+        try:
+            with open(filename, 'w') as f:
+                json.dump(routine_data, f, indent=4)
+            return True
+        except Exception as e:
+            print(f"Error guardando archivo: {e}")
+            return False
 
-        return ""
+    def load_routine_from_file(self, filename):
+        try:
+            with open(filename, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"Error cargando archivo: {e}")
+            return None
