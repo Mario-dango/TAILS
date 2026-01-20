@@ -2,7 +2,8 @@ from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QGridLayout, QLabel, QComboBox, QPushButton, 
                              QTabWidget, QGroupBox, QLCDNumber, QTextEdit, 
                              QLineEdit, QCheckBox, QRadioButton, QButtonGroup,
-                             QTableWidget, QProgressBar, QHeaderView, QSpacerItem, QSizePolicy)
+                             QTableWidget, QProgressBar, QHeaderView, QSlider,
+                             QSpacerItem, QSizePolicy)
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QIcon
 
@@ -72,13 +73,32 @@ class View(QMainWindow):
         # A. Conexión
         grp_conn = QGroupBox("Conexión")
         lay_conn = QVBoxLayout(grp_conn)
+
+        # Layout horizontal para combo y botón de refrescar
+        h_lay_ports = QHBoxLayout() 
+
         self.combo_ports = QComboBox()
+        self.btn_refresh = QPushButton("R") # R de Refresh (o usa un icono)
+        self.btn_refresh.setFixedWidth(30)  # Botón pequeño
+
+        h_lay_ports.addWidget(self.combo_ports)
+        h_lay_ports.addWidget(self.btn_refresh)
+
         self.btn_connect = QPushButton("Conectar")
         self.btn_connect.setCheckable(True) 
+
         lay_conn.addWidget(QLabel("Puerto COM:"))
-        lay_conn.addWidget(self.combo_ports)
+        lay_conn.addLayout(h_lay_ports) # Agregamos el layout horizontal
         lay_conn.addWidget(self.btn_connect)
         layout.addWidget(grp_conn)
+
+        # self.combo_ports = QComboBox()
+        # self.btn_connect = QPushButton("Conectar")
+        # self.btn_connect.setCheckable(True) 
+        # lay_conn.addWidget(QLabel("Puerto COM:"))
+        # lay_conn.addWidget(self.combo_ports)
+        # lay_conn.addWidget(self.btn_connect)
+        # layout.addWidget(grp_conn)
         
         # B. Telemetría (LCDs)
         grp_pos = QGroupBox("Posición Actual")
@@ -101,10 +121,16 @@ class View(QMainWindow):
         grp_sens = QGroupBox("Sensores")
         lay_sens = QHBoxLayout(grp_sens)
         
-        # Simulamos LEDs con Labels redondos (se estilizarán en CSS o lógica)
+        # Simulamos LEDs con Labels redondos
         self.led_x = QLabel("X"); self.led_x.setAlignment(Qt.AlignCenter)
         self.led_y = QLabel("Y"); self.led_y.setAlignment(Qt.AlignCenter)
         self.led_z = QLabel("Z"); self.led_z.setAlignment(Qt.AlignCenter)
+        
+        # --- AGREGAR ESTAS LINEAS PARA FORZAR TAMAÑO VISIBLE ---
+        self.led_x.setFixedSize(30, 30)
+        self.led_y.setFixedSize(30, 30)
+        self.led_z.setFixedSize(30, 30)
+        # -------------------------------------------------------
         
         # Asignar nombres de objeto para CSS ID
         self.led_x.setObjectName("sensor_led_off")
@@ -116,7 +142,28 @@ class View(QMainWindow):
         lay_sens.addWidget(self.led_z)
         layout.addWidget(grp_sens)
 
-        # D. STOP
+        # --- D. NUEVO: INDICADORES DE SISTEMA (HOME, WAIT, FINISH) ---
+        grp_sys = QGroupBox("Sistema")
+        lay_sys = QVBoxLayout(grp_sys)
+        
+        # Creamos las 3 etiquetas
+        self.lbl_status_home = QLabel("HOME")
+        self.lbl_status_wait = QLabel("WAIT / BUSY")
+        self.lbl_status_finish = QLabel("FINISH")
+        
+        # Estado inicial: Apagado (Clase definida en CSS)
+        self.lbl_status_home.setProperty("class", "status_badge_off")
+        self.lbl_status_wait.setProperty("class", "status_badge_off")
+        self.lbl_status_finish.setProperty("class", "status_badge_off")
+        
+        lay_sys.addWidget(self.lbl_status_home)
+        lay_sys.addWidget(self.lbl_status_wait)
+        lay_sys.addWidget(self.lbl_status_finish)
+        
+        layout.addWidget(grp_sys)
+        # -------------------------------------------------------------
+
+        # E. STOP
         self.btn_estop = QPushButton("STOP EMERGENCIA")
         self.btn_estop.setProperty("class", "stop_button") # Para CSS
         self.btn_estop.setMinimumHeight(60)
@@ -187,7 +234,7 @@ class View(QMainWindow):
 
     def setup_tab_teaching(self, parent):
         layout = QHBoxLayout(parent)
-        
+
         # Columna Izq: Jogging
         col_jog = QVBoxLayout()
         grp_jog = QGroupBox("Control Manual (Jogging)")
@@ -203,6 +250,7 @@ class View(QMainWindow):
         self.btn_home_xy = QPushButton("Hxy")
         self.btn_home_xy.setStyleSheet("background-color: #00bcd4; color: black; font-weight: bold;")
         
+        
         self.btn_z_plus = QPushButton("Z+")
         self.btn_z_minus = QPushButton("Z-")
         
@@ -216,6 +264,27 @@ class View(QMainWindow):
         grid_jog.addWidget(self.btn_home_xy, 1, 1) # <--- AQUÍ ESTÁ EL CENTRO
         grid_jog.addWidget(self.btn_x_plus, 1, 2)
         grid_jog.addWidget(self.btn_y_minus, 2, 1)
+        
+        # GRUPO VELOCIDAD
+        grp_speed = QGroupBox("Velocidad de Movimiento (%)")
+        lay_speed = QHBoxLayout(grp_speed)
+        
+        self.slider_speed = QSlider(Qt.Horizontal)
+        self.slider_speed.setMinimum(10)
+        self.slider_speed.setMaximum(100)
+        self.slider_speed.setValue(50) # Valor inicial
+        self.slider_speed.setTickPosition(QSlider.TicksBelow)
+        self.slider_speed.setTickInterval(10)
+        
+        self.lbl_speed_val = QLabel("50%")
+        self.lbl_speed_val.setFixedWidth(35)
+        
+        lay_speed.addWidget(self.slider_speed)
+        lay_speed.addWidget(self.lbl_speed_val)
+        
+        # Agregar este grupo a la columna izquierda (col_jog)
+        col_jog.addWidget(grp_speed)
+        
         
         # Separador y Columna Z
         grid_jog.addWidget(QLabel("   |   "), 1, 3) 
@@ -268,10 +337,16 @@ class View(QMainWindow):
         lay_btns_list = QHBoxLayout()
         self.btn_add_point = QPushButton("Guardar Punto Actual")
         self.btn_del_point = QPushButton("Borrar Seleccionado")
+        
+        # --- NUEVO BOTÓN: BORRAR TODO ---
+        self.btn_clear_all = QPushButton("Limpiar Todo")
+        self.btn_clear_all.setStyleSheet("background-color: #d32f2f; font-weight: bold;") # Rojo oscuro
+        
         self.btn_save_file = QPushButton("Guardar Rutina JSON")
         
         lay_btns_list.addWidget(self.btn_add_point)
         lay_btns_list.addWidget(self.btn_del_point)
+        lay_btns_list.addWidget(self.btn_clear_all) # <--- Agregarlo al layout
         lay_btns_list.addWidget(self.btn_save_file)
         col_list.addLayout(lay_btns_list)
         
@@ -285,8 +360,14 @@ class View(QMainWindow):
         lay_file = QHBoxLayout()
         self.lbl_file = QLabel("Archivo: Ninguno cargado")
         self.btn_load_file = QPushButton("Cargar Rutina")
+        
+        # --- NUEVO BOTÓN: PREVISUALIZAR ---
+        self.btn_preview = QPushButton("Ver Contenido")
+        self.btn_preview.setStyleSheet("background-color: #FF9800; color: black;") # Naranja
+        
         lay_file.addWidget(self.lbl_file)
         lay_file.addWidget(self.btn_load_file)
+        lay_file.addWidget(self.btn_preview) # <--- Agregarlo al layout
         layout.addLayout(lay_file)
         
         # Progreso

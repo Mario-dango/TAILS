@@ -20,14 +20,25 @@ extern char buffer_tx[60];
 extern char buffer_data[4][6];
 extern uint8_t estadoGarra; // Definida en gripper_driver.c ahora, o si la dejaste en main.c
 extern int homeStatus;      // La usabas en main.c, quizás debas definirla aquí o traerla con extern
-// Variable externa que vive en main.c
-extern uint8_t robotCalibrated;
+// Tiempos para no saturar el puerto serie
+uint32_t lastTelemetryCheck = 0;
+uint32_t lastTelemetrySentTime = 0;
+
+// Variables para recordar el estado anterior (static mantiene el valor entre llamadas)
+static int prevX = -99999;
+static int prevY = -99999;
+static int prevZ = -99999;
+static uint8_t prevSensors = 0xFF; // Valor imposible para forzar primer envío
+static uint8_t prevCalib = 0xFF;
+static uint8_t prevMoving = 0xFF;
 
 // Variables locales de ayuda
 uint8_t homeMotor_X = 0;
 uint8_t homeMotor_Y = 0;
 uint8_t homeMotor_Z = 0;
 int homeStatus_Local = 0; // Para guardar resultado de homing
+int velocidadGlobal;
+
 
 // --- Implementación ---
 
@@ -41,28 +52,35 @@ void Robot_Consignas(void){
 
 uint8_t Robot_ModoCalibracion(void){
 
-      // 1. COMANDO HOMING (:-H)
-      // Busca los sensores físicos para establecer el cero real de máquina.
-      if (buffer_rx[2] == 'H'){
-          HAL_GPIO_WritePin(Wait_led_GPIO_Port, Wait_led_Pin, GPIO_PIN_SET); // LED indicando ocupado
+      	  	  // 1. COMANDO HOMING (:-H)
+      	  // Busca los sensores físicos para establecer el cero real de máquina.
+		if (buffer_rx[2] == 'H'){
+	          // 1. FORZAR LED DE "OCUPADO" (Wait)
+	          HAL_GPIO_WritePin(Wait_led_GPIO_Port, Wait_led_Pin, GPIO_PIN_SET);
 
-          robotCalibrated = 0; // Desactivar visualización de coordenadas en LCD
+	          robotCalibrated = 0;
 
-          // Imprimimos en LCD
-          Lcd_Clear();
-          Lcd_Set_Cursor(1,1); Lcd_Send_String("Homing...");
+	          // Imprimimos mensaje inicial
+	          USB_Print("STATUS|Homing...|M:1\r\n"); // M:1 fuerza al PC a saber que se mueve
+	          Lcd_Clear();
+	          Lcd_Set_Cursor(1,1); Lcd_Send_String("Homing...");
 
-          // Ejecutar rutina de Homing (bloqueante)
-          homeStatus_Local = HomingMotors(&homeMotor_X, &homeMotor_Y, &homeMotor_Z);
+	          // 2. Ejecutar rutina (Bloqueante)
+	          homeStatus_Local = HomingMotors(&homeMotor_X, &homeMotor_Y, &homeMotor_Z);
 
-          if (homeStatus_Local == 0){
-              // Éxito: Los contadores internos ya se pusieron a 0 dentro del driver
-              robotCalibrated = 1; // Activamos LCD con coordenadas
+	          // 3. APAGAR LED DE "OCUPADO"
+	          HAL_GPIO_WritePin(Wait_led_GPIO_Port, Wait_led_Pin, GPIO_PIN_RESET);
 
-              sprintf(buffer_tx, "Homing OK\r\n"); USB_Print(buffer_tx);
-              Lcd_Set_Cursor(1,1); Lcd_Send_String("Home Status: OK");
-              HAL_GPIO_WritePin(Home_led_GPIO_Port, Home_led_Pin, GPIO_PIN_SET);
-          } else {
+	          if (homeStatus_Local == 0){
+	              robotCalibrated = 1;
+	              // Al terminar, enviamos status final con Home OK (C:1) y Movimiento OFF (M:0)
+	              // Esto actualizará la interfaz automáticamente
+	              Robot_UpdateTelemetry();
+
+	              sprintf(buffer_tx, "Homing OK\r\n"); USB_Print(buffer_tx);
+	              Lcd_Set_Cursor(1,1); Lcd_Send_String("Home Status: OK");
+	              HAL_GPIO_WritePin(Home_led_GPIO_Port, Home_led_Pin, GPIO_PIN_SET);
+	          } else {
               sprintf(buffer_tx, "Homing Error: %d\r\n", homeStatus_Local); USB_Print(buffer_tx);
               Lcd_Set_Cursor(1,1); Lcd_Send_String("Home Error!");
           }
@@ -123,23 +141,36 @@ uint8_t Robot_ModoCalibracion(void){
           return 0;
       }
 
-      // 6. VELOCIDAD GLOBAL (:-V050)
-      else if (buffer_rx[2] == 'V'){
-          CDC_FS_Substring(3, 5, buffer_rx, buffer_data[0]); // Lee 2 dígitos (ej 50) o 3 (100)
-          int velocidad = atoi(buffer_data[0]);
+		// 6. VELOCIDAD GLOBAL (:-V100)
+	  else if (buffer_rx[2] == 'V'){
+		  // CORRECCIÓN 1: Leer 3 dígitos (índices 3, 4, 5). El fin es 6.
+		  CDC_FS_Substring(3, 6, buffer_rx, buffer_data[0]);
 
-          if (velocidad > 0 && velocidad <= 100){
-              // Aplicamos velocidad base a todos (para movimientos manuales futuros)
-              for(int i=0; i<NUM_MOTORS; i++) {
-                   // Nota: Esto cambia la velocidad actual.
-                   // Si quieres solo cambiar la "por defecto", usa una variable global.
-                   // Pero cambiar la actual está bien si están parados.
-                   motors[i].velocity = velocidad;
-              }
-              sprintf(buffer_tx, "Velocidad Global: %d%%\r\n", velocidad); USB_Print(buffer_tx);
-          }
-          return 0;
-      }
+		  int porcentaje = atoi(buffer_data[0]); // Esto nos da 10 a 100
+
+		  if (porcentaje >= 10 && porcentaje <= 100){
+
+			  // CORRECCIÓN 2: Escalado.
+			  // Si porcentaje es 100, velocidad = 1000.
+			  // Si porcentaje es 10, velocidad = 100.
+			  int nuevaVelocidad = porcentaje * 10;
+
+			  // (Opcional) Si quieres forzar que el mínimo sea idéntico al homing (20):
+			  if (porcentaje <= 10) nuevaVelocidad = 20;
+
+			  // Guardamos en la variable global para futuros movimientos (:#...)
+			  velocidadGlobal = nuevaVelocidad;
+
+			  // Aplicamos inmediatamente por si queremos movernos ahora mismo
+			  for(int i=0; i<NUM_MOTORS; i++) {
+				   motors[i].velocity = velocidadGlobal;
+			  }
+
+			  sprintf(buffer_tx, "Velocidad Set: %d%% (%d pps)\r\n", porcentaje, nuevaVelocidad);
+			  USB_Print(buffer_tx);
+		  }
+		  return 0;
+	  }
 
       // 7. STOP EMERGENCIA (:-S)
       else if (buffer_rx[2] == 'S'){
@@ -173,21 +204,27 @@ uint8_t Robot_ModoEjecucion(void){
     int y = BuscarValor('Y', buffer_rx);
     int z = BuscarValor('Z', buffer_rx);
 
-    // DEFINIR UNA VELOCIDAD POR DEFECTO PARA MOVIMIENTOS
-    int velDefecto = 50; // 50% de velocidad (ajusta según necesites)
-
     // Validamos que al menos se haya enviado alguna coordenada
     if (x >= 0 || y >= 0 || z >= 0) {
 
         // Al llamar a moveMotors, pasamos &velDefecto en lugar de 0
         // Así aseguramos que el motor despierte del estado de reposo (vel=0)
+    	if (x >= 0) moveMotors(&motors[0], &x, &velocidadGlobal);
+		if (y >= 0) moveMotors(&motors[1], &y, &velocidadGlobal);
+		if (z >= 0) moveMotors(&motors[2], &z, &velocidadGlobal);
 
-        if (x >= 0) moveMotors(&motors[0], &x, &velDefecto);
-        if (y >= 0) moveMotors(&motors[1], &y, &velDefecto);
-        if (z >= 0) moveMotors(&motors[2], &z, &velDefecto);
+        // Leemos estado actual real
+		int curX = motors[0].currentPosition;
+		int curY = motors[1].currentPosition;
+		int curZ = motors[2].currentPosition;
+		// Asumimos que tienes una variable global 'velocidadGlobal' o lees la de un motor
+		int curVel = motors[0].velocity;
+		// Variable global de estado garra (0 o 1) o un char
+		char estadoGarra = (HAL_GPIO_ReadPin(Gripper_pin_GPIO_Port, Gripper_pin_Pin) == GPIO_PIN_SET) ? 'A' : 'C';
 
-        sprintf(buffer_tx, "Moviendo... X:%d Y:%d Z:%d V:%d\r\n", x, y, z, velDefecto);
-        USB_Print(buffer_tx);
+		sprintf(buffer_tx, "Ejecutando -> X:%d Y:%d Z:%d V:%d G:%c\r\n",
+				curX, curY, curZ, curVel, estadoGarra);
+		USB_Print(buffer_tx);
     }
 
     // Control de Garra
@@ -228,5 +265,73 @@ void Robot_ProcesarComando(char *cmd){
         }
     } else if (cmd[0] == '?'){
         Robot_Consignas();
+    }
+}
+void Robot_UpdateTelemetry(void) {
+    // Revisar cada 50ms (más rápido que antes, pero solo envía si hay cambios)
+    if (HAL_GetTick() - lastTelemetryCheck < 50) return;
+    lastTelemetryCheck = HAL_GetTick();
+
+    // 1. LECTURA DE ESTADO ACTUAL
+    // ---------------------------------------------------------
+    int currX = motors[0].currentPosition;
+    int currY = motors[1].currentPosition;
+    int currZ = motors[2].currentPosition;
+
+    // Leemos sensores (Lógica inversa: 1 si toca, 0 si no)
+    uint8_t sX = (HAL_GPIO_ReadPin(StopM_X_GPIO_Port, StopM_X_Pin) == GPIO_PIN_RESET) ? 1 : 0;
+    uint8_t sY = (HAL_GPIO_ReadPin(StopM_Y_GPIO_Port, StopM_Y_Pin) == GPIO_PIN_RESET) ? 1 : 0;
+    uint8_t sZ = (HAL_GPIO_ReadPin(StopM_Z_GPIO_Port, StopM_Z_Pin) == GPIO_PIN_RESET) ? 1 : 0;
+
+    // Empaquetamos sensores en un byte para fácil comparación (Bits: 0000 0ZYX)
+    uint8_t currSensors = (sZ << 2) | (sY << 1) | (sX);
+
+    // Estado de movimiento (Si alguno tiene velocidad > 0)
+    uint8_t currMoving = (motors[0].velocity > 0 || motors[1].velocity > 0 || motors[2].velocity > 0);
+
+    // Estado calibración
+    uint8_t currCalib = robotCalibrated;
+
+    // 2. GESTIÓN DE LEDS FÍSICOS (En la placa)
+    // ---------------------------------------------------------
+    HAL_GPIO_WritePin(Home_led_GPIO_Port, Home_led_Pin, currCalib ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(Wait_led_GPIO_Port, Wait_led_Pin, currMoving ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    // (Opcional) Finish Led podría ser parpadeo, aquí lo dejamos apagado por ahora
+    // HAL_GPIO_WritePin(Finish_led_GPIO_Port, Finish_led_Pin, GPIO_PIN_RESET);
+
+
+    // 3. DETECCIÓN DE CAMBIOS Y ENVÍO SERIAL
+    // ---------------------------------------------------------
+    uint8_t hasChanged = 0;
+
+    if (currX != prevX) hasChanged = 1;
+    if (currY != prevY) hasChanged = 1;
+    if (currZ != prevZ) hasChanged = 1;
+    if (currSensors != prevSensors) hasChanged = 1;
+    if (currCalib != prevCalib) hasChanged = 1;
+    if (currMoving != prevMoving) hasChanged = 1;
+
+    // Condición de "Heartbeat": Si pasaron 2 segundos (2000ms) sin enviar, forzar envío
+    uint8_t forceHeartbeat = (HAL_GetTick() - lastTelemetrySentTime > 2000);
+
+    if (hasChanged || forceHeartbeat) {
+        char msg[100];
+        // AGREGAMOS MÁS DATOS A LA TRAMA:
+        // C: Calibrado (0/1)
+        // M: Moviendo (0/1)
+        sprintf(msg, "STATUS|X:%d|Y:%d|Z:%d|S:%d%d%d|C:%d|M:%d\r\n",
+                currX, currY, currZ,
+                sX, sY, sZ,
+                currCalib, currMoving);
+
+        USB_Print(msg);
+
+        // Actualizar estado previo
+        prevX = currX; prevY = currY; prevZ = currZ;
+        prevSensors = currSensors;
+        prevCalib = currCalib;
+        prevMoving = currMoving;
+
+        lastTelemetrySentTime = HAL_GetTick();
     }
 }

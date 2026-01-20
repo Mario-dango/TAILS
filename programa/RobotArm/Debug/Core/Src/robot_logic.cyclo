@@ -1,5 +1,6 @@
-../Core/Src/robot_logic.c:32:6:Robot_Consignas	1
-../Core/Src/robot_logic.c:40:9:Robot_ModoCalibracion	9
-../Core/Src/robot_logic.c:109:9:Robot_ModoAprendizaje	4
-../Core/Src/robot_logic.c:142:9:Robot_ModoEjecucion	9
-../Core/Src/robot_logic.c:179:6:Robot_ProcesarComando	7
+../Core/Src/robot_logic.c:45:6:Robot_Consignas	1
+../Core/Src/robot_logic.c:53:9:Robot_ModoCalibracion	14
+../Core/Src/robot_logic.c:185:9:Robot_ModoAprendizaje	2
+../Core/Src/robot_logic.c:200:9:Robot_ModoEjecucion	10
+../Core/Src/robot_logic.c:243:6:Robot_ProcesarComando	7
+../Core/Src/robot_logic.c:270:6:Robot_UpdateTelemetry	13
