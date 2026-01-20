@@ -56,9 +56,10 @@ class Controller:
         self.update_ui_connection_state(False)
 
     def init_control(self):
-        self.view.show()
-        self.refresh_ports()
+            self.view.show()
+            self.refresh_ports()
 
+<<<<<<< HEAD
         # --- CONEXIONES BASICAS ---
         # self.view.combo_ports.mousePressEvent = lambda e: self.refresh_ports()
         self.view.btn_refresh.clicked.connect(self.refresh_ports)
@@ -80,20 +81,17 @@ class Controller:
         # Config Garra
         self.view.btn_set_open.clicked.connect(lambda: self.send_command(f":-A{self.view.input_angle_open.text()}"))
         self.view.btn_set_close.clicked.connect(lambda: self.send_command(f":-P{self.view.input_angle_close.text()}"))
+=======
+            # --- 1. SOLUCIÓN AL CRASH (REEMPLAZA LAS LÍNEAS DE LAMBDA) ---
+            original_mouse_press = self.view.combo_ports.mousePressEvent
+>>>>>>> 2d72cbd4fe8c15ccb5c761df34c47219596038e2
 
-        # --- CONEXIONES DE APRENDIZAJE (JOGGING) ---
-        # Conectamos cada botón a una función helper con sus argumentos
-        self.view.btn_x_plus.clicked.connect(lambda: self.handle_jog('x', 1))
-        self.view.btn_x_minus.clicked.connect(lambda: self.handle_jog('x', -1))
-        self.view.btn_y_plus.clicked.connect(lambda: self.handle_jog('y', 1))
-        self.view.btn_y_minus.clicked.connect(lambda: self.handle_jog('y', -1))
-        self.view.btn_z_plus.clicked.connect(lambda: self.handle_jog('z', 1))
-        self.view.btn_z_minus.clicked.connect(lambda: self.handle_jog('z', -1))
-        
-        # Garra Manual
-        self.view.btn_open_grip.clicked.connect(lambda: self.handle_gripper('A'))
-        self.view.btn_close_grip.clicked.connect(lambda: self.handle_gripper('C'))
+            def on_combo_click(event):
+                self.refresh_ports()
+                self.update_ui_connection_state(self.model.is_connected())
+                original_mouse_press(event)
 
+<<<<<<< HEAD
         # Lista de Puntos
         self.view.btn_add_point.clicked.connect(self.add_point_to_table)
         self.view.btn_del_point.clicked.connect(self.delete_point_from_table)
@@ -104,11 +102,25 @@ class Controller:
         # Conectar acciones de velocidad
         self.view.slider_speed.valueChanged.connect(self.handle_speed_change)
         self.view.slider_speed.sliderReleased.connect(self.send_speed_command)
+=======
+            self.view.combo_ports.mousePressEvent = on_combo_click
+>>>>>>> 2d72cbd4fe8c15ccb5c761df34c47219596038e2
 
-        # Nuevos botones de Home Parcial
-        self.view.btn_home_xy.clicked.connect(self.handle_go_zero_xy)
-        self.view.btn_home_z.clicked.connect(self.handle_go_zero_z)
+            # --- 2. CONEXIONES DE HARDWARE Y CONSOLA ---
+            self.view.btn_connect.clicked.connect(self.toggle_connection)
+            self.view.btn_send_console.clicked.connect(self.handle_console_send)
+            self.view.input_console.returnPressed.connect(self.handle_console_send)
+            self.view.btn_clear_console.clicked.connect(self.view.txt_console.clear)
+            self.view.btn_estop.clicked.connect(self.emergency_stop)
+            
+            # --- 3. CALIBRACIÓN Y CONFIGURACIÓN ---
+            self.view.btn_home.clicked.connect(self.handle_home)
+            self.view.btn_setzero.clicked.connect(self.handle_set_zero)
+            self.view.chk_enable.toggled.connect(self.handle_enable_motor)
+            self.view.btn_set_open.clicked.connect(lambda: self.send_command(f":-A{self.view.input_angle_open.text()}"))
+            self.view.btn_set_close.clicked.connect(lambda: self.send_command(f":-P{self.view.input_angle_close.text()}"))
 
+<<<<<<< HEAD
         # Ejecución
         self.view.btn_load_file.clicked.connect(self.load_routine_dialog)
         self.view.btn_play.clicked.connect(self.start_execution)
@@ -116,6 +128,30 @@ class Controller:
         self.view.btn_pause.clicked.connect(self.pause_execution)
         # Nuevo: Previsualizar ejecución
         self.view.btn_preview.clicked.connect(self.preview_loaded_routine)
+=======
+            # --- 4. MOVIMIENTO MANUAL (JOGGING) ---
+            self.view.btn_x_plus.clicked.connect(lambda: self.handle_jog('x', 1))
+            self.view.btn_x_minus.clicked.connect(lambda: self.handle_jog('x', -1))
+            self.view.btn_y_plus.clicked.connect(lambda: self.handle_jog('y', 1))
+            self.view.btn_y_minus.clicked.connect(lambda: self.handle_jog('y', -1))
+            self.view.btn_z_plus.clicked.connect(lambda: self.handle_jog('z', 1))
+            self.view.btn_z_minus.clicked.connect(lambda: self.handle_jog('z', -1))
+            self.view.btn_open_grip.clicked.connect(lambda: self.handle_gripper('A'))
+            self.view.btn_close_grip.clicked.connect(lambda: self.handle_gripper('C'))
+
+            # --- 5. GESTIÓN DE RUTINAS Y PUNTOS ---
+            self.view.btn_add_point.clicked.connect(self.add_point_to_table)
+            self.view.btn_del_point.clicked.connect(self.delete_point_from_table)
+            self.view.btn_save_file.clicked.connect(self.save_routine_json)
+            self.view.btn_home_xy.clicked.connect(self.handle_go_zero_xy)
+            self.view.btn_home_z.clicked.connect(self.handle_go_zero_z)
+
+            # --- 6. PANEL DE EJECUCIÓN ---
+            self.view.btn_load_file.clicked.connect(self.load_routine_dialog)
+            self.view.btn_play.clicked.connect(self.start_execution)
+            self.view.btn_stop_run.clicked.connect(self.stop_execution)
+            self.view.btn_pause.clicked.connect(self.pause_execution)
+>>>>>>> 2d72cbd4fe8c15ccb5c761df34c47219596038e2
 
     def update_ui_connection_state(self, is_connected):
         """Bloquea o desbloquea los controles según el estado del hardware."""
