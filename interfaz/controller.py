@@ -333,7 +333,7 @@ class Controller:
             self.log_console("ALERTA", "STOP ENVIADO")
         else:
             # Informamos al usuario sin intentar una transmisión fallida
-            self.log_console("ERROR: ", "Robot no conectado.")
+            self.log_console("ERROR", "Robot no conectado.")
 
     def process_serial_data(self, data):
             # La trama ahora es: STATUS|X:100|Y:0|Z:50|S:001|C:1|M:0
@@ -434,7 +434,8 @@ class Controller:
         if prefix == "TX": color = "#00aaff"
         elif prefix == "RX": color = "#00ff00"
         elif prefix == "ERROR": color = "#ff3333"
-        elif prefix == "INFO": color = "#ffff00"
+        elif prefix == "ALERTA": color = "#ffff00"
+        elif prefix == "INFO": color = "#ffffff"
         self.view.txt_console.append(f'<span style="color:{color}"><b>[{prefix}]</b> {message}</span>')
 
         # --- LÓGICA DE EJECUCIÓN ---
