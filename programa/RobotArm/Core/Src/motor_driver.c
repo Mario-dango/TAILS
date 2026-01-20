@@ -16,10 +16,29 @@ volatile uint8_t flagStopM_X = 0;
 volatile uint8_t flagStopM_Y = 0;
 volatile uint8_t flagStopM_Z = 0;
 
+// Configuración por defecto de rampas (Ajustable)
+#define DEFAULT_MIN_VEL  50   // 50 Hz de arranque (evita resonancia baja)
+#define DEFAULT_ACCEL    5    // Aumentar 5 Hz por cada paso dado
+
+// --- Funciones Privadas ---
+void CalculateSpeed(StepperMotor *motor);
+
+// Inicializa valores por defecto para evitar basura en memoria
+void Motor_Init(void) {
+    for (int i = 0; i < NUM_MOTORS; i++) {
+        motors[i].minVelocity = DEFAULT_MIN_VEL;
+        motors[i].accelRate = DEFAULT_ACCEL;
+        motors[i].velocity = 0;
+        motors[i].targetVelocity = 0;
+        motors[i].stopFlag = 1;
+    }
+}
+
 // Implementación de ActivatedAll
 void ActivatedAll(int habilitar){
     if (habilitar == -1){ // Parada de emergencia
         for (int i = 0; i < NUM_MOTORS; i++) {
+            motors[i].targetVelocity = 0;
             motors[i].velocity = 0;
             motors[i].stepInterval = 0;
             motors[i].stopFlag = 1;
@@ -33,12 +52,27 @@ void ActivatedAll(int habilitar){
     }
 }
 
-// Implementación de moveMotors (Lógica de control de velocidad)
+// Lógica principal de configuración de movimiento
 void moveMotors(StepperMotor *motor, int *newPosition, int *velocity) {
-    if (velocity != 0) motor->velocity = *velocity;
-    if (newPosition != 0) motor->newPosition = *newPosition;
 
-    if (motor->velocity != 0){
+    // 1. Configurar Meta de Posición
+    if (newPosition != 0) {
+        motor->newPosition = *newPosition;
+    }
+
+    // 2. Configurar Meta de Velocidad (Target)
+    if (velocity != 0) {
+        motor->targetVelocity = *velocity;
+
+        // Configuración de seguridad: Si la velocidad pedida es menor a la mínima,
+        // usamos la mínima para evitar bloqueos, a menos que sea 0 (stop).
+        if (*velocity > 0 && *velocity < motor->minVelocity) {
+            motor->targetVelocity = motor->minVelocity;
+        }
+    }
+
+    // 3. Lógica de Arranque
+    if (motor->targetVelocity > 0) {
         // Calcular dirección
         if (motor->currentPosition < motor->newPosition){
             motor->direction = 0;
@@ -46,65 +80,111 @@ void moveMotors(StepperMotor *motor, int *newPosition, int *velocity) {
             motor->direction = 1;
         }
 
-        // Calcular si debe moverse
+        // Si hay distancia por recorrer
         if (motor->currentPosition != motor->newPosition){
             motor->stopFlag = 0;
-            // Evitar división por cero
-            if (motor->velocity > 0)
-                motor->stepInterval = TIMER_FREQUENCY / (motor->velocity * motor->microStepping);
+
+            // Si el motor estaba parado, lo "despertamos" con la velocidad mínima
+            if (motor->velocity == 0) {
+                motor->velocity = motor->minVelocity;
+            }
+
+            // Calculamos el primer intervalo inmediatamente
+            motor->stepInterval = TIMER_FREQUENCY / motor->velocity;
+
         } else {
-             // Ya llegó
+             // Ya estamos en el lugar
+             motor->velocity = 0;
              motor->stepInterval = 0;
+             motor->stopFlag = 1;
         }
     } else {
+        // Orden de parada (Velocidad 0)
+        motor->velocity = 0;
         motor->stepInterval = 0;
         motor->stopFlag = 1;
     }
 }
 
-// Implementación de Homing
+// Algoritmo de Rampa Trapezoidal
+// Se llama CADA VEZ que el motor da un paso físico
+void CalculateSpeed(StepperMotor *m) {
+    long stepsRemaining = abs(m->newPosition - m->currentPosition);
+
+    // Si ya llegamos (o nos pasamos por inercia)
+    if (stepsRemaining == 0) {
+        m->velocity = 0;
+        m->stepInterval = 0;
+        m->stopFlag = 1;
+        return;
+    }
+
+    // Calculamos cuántos pasos necesitamos para frenar desde la velocidad actual
+    // Formula simplificada: (Vel_Actual - Vel_Min) / Aceleracion
+    long stepsToStop = (m->velocity - m->minVelocity) / m->accelRate;
+
+    // --- FASE DE DESACELERACIÓN ---
+    if (stepsRemaining <= stepsToStop) {
+        if (m->velocity > m->minVelocity) {
+            m->velocity -= m->accelRate;
+        }
+    }
+    // --- FASE DE ACELERACIÓN ---
+    else if (m->velocity < m->targetVelocity) {
+        m->velocity += m->accelRate;
+
+        // Cap (Techo) de seguridad
+        if (m->velocity > m->targetVelocity)
+            m->velocity = m->targetVelocity;
+    }
+    // --- FASE CRUCERO (Mantener) ---
+    // (Implícita: si no entra en los if anteriores, mantiene velocidad)
+
+    // Protección final matemática
+    if (m->velocity < m->minVelocity) m->velocity = m->minVelocity;
+    if (m->velocity == 0) m->stepInterval = 0;
+    else m->stepInterval = TIMER_FREQUENCY / m->velocity;
+}
+
+// Rutina de Homing (Modificada para usar velocidad constante y segura)
 int HomingMotors(uint8_t* hmX, uint8_t* hmY, uint8_t* hmZ) {
-    ActivatedAll(1); // Habilitar drivers
-
+    ActivatedAll(1);
     Gripper_Open();
-    HAL_Delay(500); // Dar tiempo al servo para abrirse
+    HAL_Delay(500);
 
-    // 0. Resetear banderas globales de sensores por seguridad
-    flagStopM_X = 0;
-    flagStopM_Y = 0;
-    flagStopM_Z = 0;
-
-    // Inicializar valores de retorno
+    flagStopM_X = 0; flagStopM_Y = 0; flagStopM_Z = 0;
     *hmX = 0; *hmY = 0; *hmZ = 0;
 
-    // 1. Configurar movimiento lento hacia los sensores
+    // Configuración para Homing: Sin rampas, velocidad fija y baja
+    int homingSpeed = 50; // Hz
+
     for (int i = 0; i < NUM_MOTORS; i++) {
-        motors[i].velocity = 20;
-        motors[i].stepInterval = TIMER_FREQUENCY / (motors[i].velocity * motors[i].microStepping);
-        motors[i].direction = 1; // Asegúrate que 1 sea la dirección HACIA el sensor
-        motors[i].stopFlag = 1;  // Empezar parados
+        motors[i].minVelocity = homingSpeed;
+        motors[i].targetVelocity = homingSpeed; // Target = Min para que no acelere
+        motors[i].velocity = homingSpeed;
+        motors[i].accelRate = 0; // Desactivar aceleración para homing
+
+        motors[i].stepInterval = TIMER_FREQUENCY / homingSpeed;
+        motors[i].direction = 1;
+        motors[i].stopFlag = 1;
     }
 
     // --- SECUENCIA EJE X ---
-    motors[0].stopFlag = 0; // Mover X
-    contSeconds = 0; // Reiniciar contador de tiempo (asegúrate de resetearlo en main o aquí si es extern)
-
-    // CORRECCIÓN AQUÍ: Verificamos la bandera global dentro del while
+    motors[0].stopFlag = 0;
+    contSeconds = 0;
     while ((*hmX == 0) && (contSeconds < 15)) {
         if (flagStopM_X == 1) {
-            *hmX = 1;            // Avisamos al bucle que ya llegamos
-            motors[0].stopFlag = 1; // Aseguramos que el motor pare
+            *hmX = 1; motors[0].stopFlag = 1;
         }
     }
-    motors[0].stopFlag = 1; // Detener X forzosamente al salir
+    motors[0].stopFlag = 1;
 
     // --- SECUENCIA EJE Y ---
     motors[1].stopFlag = 0;
     contSeconds = 0;
     while ((*hmY == 0) && (contSeconds < 15)) {
         if (flagStopM_Y == 1) {
-            *hmY = 1;
-            motors[1].stopFlag = 1;
+            *hmY = 1; motors[1].stopFlag = 1;
         }
     }
     motors[1].stopFlag = 1;
@@ -114,32 +194,30 @@ int HomingMotors(uint8_t* hmX, uint8_t* hmY, uint8_t* hmZ) {
     contSeconds = 0;
     while ((*hmZ == 0) && (contSeconds < 15)) {
         if (flagStopM_Z == 1) {
-            *hmZ = 1;
-            motors[2].stopFlag = 1;
+            *hmZ = 1; motors[2].stopFlag = 1;
         }
     }
     motors[2].stopFlag = 1;
 
-    // Limpieza final
+    // Restaurar valores normales post-homing
     for (int i = 0; i < NUM_MOTORS; i++) {
         motors[i].velocity = 0;
         motors[i].stepInterval = 0;
         motors[i].currentPosition = 0;
-        motors[i].stopFlag = 0; // Dejarlos listos para recibir comandos
+        motors[i].stopFlag = 0;
+        motors[i].accelRate = DEFAULT_ACCEL; // Restaurar aceleración
+        motors[i].minVelocity = DEFAULT_MIN_VEL;
     }
 
-    // Retorno de estado
-    if ((*hmX == 1 )&&(*hmY == 1 )&&(*hmZ == 1 )){
-        return 0; // Éxito total
-    }
-    if (*hmX == 0) return -1; // Falló X
-    if (*hmY == 0) return -2; // Falló Y
-    if (*hmZ == 0) return -3; // Falló Z
+    if ((*hmX == 1 )&&(*hmY == 1 )&&(*hmZ == 1 )) return 0;
+    if (*hmX == 0) return -1;
+    if (*hmY == 0) return -2;
+    if (*hmZ == 0) return -3;
 
     return 1;
 }
 
-// Lógica del Timer (Lo que antes estaba en TIM2_PeriodElapsedCallback)
+// --- INTERRUPCIÓN DEL TIMER (Generación de Pulsos) ---
 void Motor_Timer_Callback(void) {
     for (int i = 0; i < NUM_MOTORS; i++) {
         StepperMotor *motor = &motors[i];
@@ -147,22 +225,24 @@ void Motor_Timer_Callback(void) {
         if (motor->stopFlag == 0 && motor->stepInterval > 0) {
             motor->stepCounter++;
 
-            // Generación de pulso con ancho controlado
+            // Generar Pulso STEP (High)
             if (motor->stepCounter >= motor->stepInterval) {
-                // Setear dirección física
                 HAL_GPIO_WritePin(motor->dirPort, motor->dirPin, (motor->direction == 0) ? GPIO_PIN_SET : GPIO_PIN_RESET);
-                // Flanco ascendente (STEP HIGH)
                 HAL_GPIO_WritePin(motor->stepPort, motor->stepPin, GPIO_PIN_SET);
             }
 
-            // Flanco descendente (STEP LOW) - 1 tick después
+            // Terminar Pulso STEP (Low) y Contabilizar Paso
             if (motor->stepCounter >= (motor->stepInterval + 1)) {
                 HAL_GPIO_WritePin(motor->stepPort, motor->stepPin, GPIO_PIN_RESET);
                 motor->stepCounter = 0;
 
-                // Actualizar posición lógica
+                // Actualizar Posición
                 if (motor->direction == 0) motor->currentPosition++;
                 else motor->currentPosition--;
+
+                // --- AQUÍ OCURRE LA MAGIA DE LA RAMPA ---
+                // Recalculamos la velocidad para el SIGUIENTE paso
+                CalculateSpeed(motor);
             }
         }
     }
@@ -178,14 +258,17 @@ void Motor_Sensor_Triggered(uint16_t GPIO_Pin) {
     // o usar las variables estáticas flagStopM_X.
     else if (GPIO_Pin == StopM_X_Pin) {
         motors[0].stopFlag = 1;
+        motors[0].velocity = 0; // Parada seca al tocar sensor
         flagStopM_X = 1; // Usado por la lógica de Homing
     }
     else if (GPIO_Pin == StopM_Y_Pin) {
         motors[1].stopFlag = 1;
+        motors[1].velocity = 0; // Parada seca al tocar sensor
         flagStopM_Y = 1;
     }
     else if (GPIO_Pin == StopM_Z_Pin) {
         motors[2].stopFlag = 1;
+        motors[2].velocity = 0; // Parada seca al tocar sensor
         flagStopM_Z = 1;
     }
 }
@@ -194,10 +277,12 @@ void Motor_Sensor_Triggered(uint16_t GPIO_Pin) {
 int targetComplete(StepperMotor *motor){
     int target = 0;
     for(int i = 0; i < NUM_MOTORS; i++){
-        if (motor[i].currentPosition == motor[i].newPosition) target++;
+    	// Consideramos completado si está parado y velocity es 0
+        if (motor[i].velocity == 0 && motor[i].stopFlag == 1) target++;
     }
     return (target == NUM_MOTORS) ? 1 : 0;
 }
+
 
 float deg2rad(float degrees) {
     return degrees * (M_PI / 180.0);

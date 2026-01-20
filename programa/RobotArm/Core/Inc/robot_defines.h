@@ -22,6 +22,11 @@ typedef struct {
     int stepCounter;            // Contador interno para el Timer
     int stepInterval;           // Ticks del timer entre pasos
     volatile int stopFlag;      // 1 = Detenido, 0 = Moviéndose
+    // --- NUEVOS CAMPOS PARA RAMPAS ---
+        int targetVelocity;  // Velocidad Objetivo (La máxima a la que queremos llegar)
+        int minVelocity;     // Velocidad de Arranque (Para no empezar de 0 absoluto)
+        int accelRate;       // Tasa de aceleración (Hz por paso)
+        int stepsToDecel;    // Cálculo interno: cuándo empezar a frenar
 } StepperMotor;
 
 #endif /* ROBOT_DEFINES_H */

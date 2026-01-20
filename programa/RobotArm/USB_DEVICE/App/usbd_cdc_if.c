@@ -262,9 +262,15 @@ static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
 	  USBD_CDC_SetRxBuffer(&hUsbDeviceFS, &Buf[0]);
 	  USBD_CDC_ReceivePacket(&hUsbDeviceFS);
 	  //	Agregado para copiar lo recibido del Bufer al vector rx
+	  //uint8_t len = (uint8_t) *Len;
+	  //memset (buffer_rx, '\0', 40);
+	  //memcpy (buffer_rx, Buf, len);
+
 	  uint8_t len = (uint8_t) *Len;
-	  memset (buffer_rx, '\0', 40);
-	  memcpy (buffer_rx, Buf, len);
+	  if (len > 39) len = 39; // Dejar espacio para el terminador nulo
+	  memset(buffer_rx, 0, 40);
+	  memcpy(buffer_rx, Buf, len);
+
 	  memset (Buf, '\0', len);
 	  flagUsb = 1;
 	  //	Se termina levantando la bandera de recepción para el main
