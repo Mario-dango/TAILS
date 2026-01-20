@@ -19,4 +19,7 @@ void Gripper_SetAngle(uint16_t angle); // Equivalente a tu Servo_Write_angle
 void Gripper_Open(void);
 void Gripper_Close(void);
 
+void Gripper_SetOpenAngle(uint16_t angle);
+void Gripper_SetClosedAngle(uint16_t angle);
+
 #endif /* GRIPPER_DRIVER_H */

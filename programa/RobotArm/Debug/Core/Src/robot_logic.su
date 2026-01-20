@@ -1,5 +1,6 @@
-../Core/Src/robot_logic.c:32:6:Robot_Consignas	8	static
-../Core/Src/robot_logic.c:40:9:Robot_ModoCalibracion	24	static
-../Core/Src/robot_logic.c:109:9:Robot_ModoAprendizaje	32	static
-../Core/Src/robot_logic.c:142:9:Robot_ModoEjecucion	32	static
-../Core/Src/robot_logic.c:179:6:Robot_ProcesarComando	16	static
+../Core/Src/robot_logic.c:43:6:Robot_Consignas	8	static
+../Core/Src/robot_logic.c:51:9:Robot_ModoCalibracion	32	static
+../Core/Src/robot_logic.c:170:9:Robot_ModoAprendizaje	24	static
+../Core/Src/robot_logic.c:185:9:Robot_ModoEjecucion	64	static
+../Core/Src/robot_logic.c:232:6:Robot_ProcesarComando	16	static
+../Core/Src/robot_logic.c:259:6:Robot_UpdateTelemetry	168	static

@@ -185,6 +185,8 @@ int main(void)
 		      lcd_timer = HAL_GetTick();
 		  }
 	  }
+
+	  Robot_UpdateTelemetry();
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
