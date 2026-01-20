@@ -50,7 +50,9 @@ class Controller:
         self.refresh_ports()
 
         # --- CONEXIONES BASICAS ---
-        self.view.combo_ports.mousePressEvent = lambda e: self.refresh_ports()
+        # self.view.combo_ports.mousePressEvent = lambda e: self.refresh_ports()
+        self.view.btn_refresh.clicked.connect(self.refresh_ports)
+
         self.view.btn_connect.clicked.connect(self.toggle_connection)
         self.view.combo_ports.mousePressEvent = lambda e: (self.refresh_ports(), self.update_ui_connection_state(self.model.is_connected()))
         
