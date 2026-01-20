@@ -1,106 +1,119 @@
 # 🤖 Firmware Brazo Robótico 4-DOF (STM32 BluePill)
 
-Este documento detalla la arquitectura, lógica y configuración del firmware para el controlador del brazo robótico de 4 grados de libertad (3 ejes cartesianos + 1 Gripper). El sistema corre sobre un **STM32F103C8T6 (BluePill)** utilizando **STM32CubeIDE** y la librería **HAL**.
+Este proyecto implementa el firmware de control para un brazo robótico de 4 grados de libertad (3 ejes cartesianos + 1 Gripper). El sistema corre sobre un **STM32F103C8T6 (BluePill)**, utilizando una arquitectura modular por capas sobre HAL.
+
+El sistema destaca por incluir generación de pasos por interrupción (20kHz), control de velocidad con **rampas de aceleración trapezoidal** en tiempo real y comunicación USB-CDC robusta.
 
 ---
 
-## 📂 Arquitectura de Archivos
+## 📂 Arquitectura del Proyecto
 
-El proyecto sigue una estructura modular donde se separa la lógica de negocio, el control de hardware y la comunicación.
+El código se organiza separando la lógica de negocio (Robot), el control de hardware (Drivers) y la comunicación.
 
-### 📁 Core/Src & Core/Inc
-
-| Archivo | Propósito / Alcance |
+| Módulo (`.c/.h`) | Descripción Técnica |
 | :--- | :--- |
-| **`main.c` / `.h`** | **Punto de Entrada.** Configuración inicial de periféricos (HAL_Init), bucle infinito (`while(1)`), instanciación de variables globales y orquestación entre USB y Motores. |
-| **`robot_logic.c` / `.h`** | **Cerebro del Robot.** Interpreta los comandos ASCII recibidos, gestiona la máquina de estados (Calibración, Aprendizaje, Ejecución) y controla la telemetría automática. |
-| **`motor_driver.c` / `.h`** | **Control de Movimiento (Paso a Paso).** Contiene la lógica matemática para generar pulsos, rampas (si aplica), rutinas de *Homing* y gestión de interrupciones de temporizadores para los pasos. |
-| **`gripper_driver.c` / `.h`** | **Control del Efector Final.** Maneja el servo mediante PWM. Abstrae los ángulos físicos a comandos lógicos (`Open`/`Close`). |
-| **`comm_manager.c` / `.h`** | **Gestor de Comunicación.** Wrapper para la transmisión USB (CDC) segura y funciones de utilidad para parseo de cadenas (substrings, atoi). |
-| **`stm32f1xx_it.c` / `.h`** | **Interrupciones.** Manejadores de interrupciones de hardware (IRQ Handlers) para Timers y Pines EXTI (Fines de carrera/Emergencia). |
-| **`lcd_i2c.c` / `.h`** | **Driver de Pantalla.** Librería de bajo nivel para controlar el LCD 16x2/20x4 mediante el bus I2C. |
-| **`robot_defines.h`** | **Definiciones Globales.** Contiene las estructuras de datos principales (`StepperMotor`) y constantes del sistema. |
-
----
-
-## ⚙️ Métodos y Funciones Clave
-
-A continuación se detallan las funciones críticas que dan vida al robot:
-
-### 🧠 Lógica (`robot_logic.c`)
-* `void Robot_ProcesarComando(char *cmd)`: Recibe la trama cruda del USB (ej. `:#X100|Y200`). Usa un `switch` para derivar al modo correcto:
-    * `:-` -> **Modo Calibración** (Homing, Set Zero, Config Velocidad).
-    * `:#` -> **Modo Ejecución** (Movimiento coordinado).
-* `uint8_t Robot_ModoEjecucion(void)`: Parsea coordenadas X, Y, Z y actualiza el *setpoint* de los motores. Aplica la velocidad global configurada.
-* `void Robot_UpdateTelemetry(void)`: Se ejecuta cada 50ms. Verifica si hubo cambios en posición o sensores y envía el estado al PC: `STATUS|X:100|Y:100|...`.
-
-### 💪 Motores (`motor_driver.c`)
-* `void moveMotors(StepperMotor *motor, ...)`: No mueve el motor directamente. Calcula el **intervalo de tiempo** necesario entre pasos basándose en la velocidad deseada y la resolución del timer.
-* `void Motor_Timer_Callback(void)`: Llamada desde la interrupción del Timer. Si el contador llega al intervalo calculado, genera un pulso físico en el pin `STEP`.
-* `int HomingMotors(...)`: Rutina **bloqueante**. Mueve los ejes secuencialmente hacia el sensor, espera la interrupción y establece el cero lógico.
-
-### ✋ Seguridad e Interrupciones (`stm32f1xx_it.c`)
-* `EXTI15_10_IRQHandler`: Se dispara al tocar cualquier fin de carrera o el botón de emergencia. Llama inmediatamente a `Motor_Sensor_Triggered` para detener los pulsos.
+| **`main`** | Inicialización de HAL, bucle infinito `while(1)` y orquestación de tareas de fondo (LCD, Polling). |
+| **`robot_logic`** | **Cerebro.** Máquina de estados que interpreta comandos ASCII (`:#`, `:-`), gestiona modos (Calibración/Ejecución) y telemetría. |
+| **`motor_driver`** | **Cinemática.** Gestión de motores paso a paso. Incluye la lógica de **Rampas Trapezoidales** (`CalculateSpeed`), generación de pulsos en interrupción y Homing. |
+| **`gripper_driver`** | **Efector Final.** Abstracción para el control del servo SG90 mediante PWM (TIM4). |
+| **`comm_manager`** | **Comunicaciones.** Wrapper para transmisión USB segura y utilidades de parseo de texto (`atoi`, `substring`). |
+| **`stm32f1xx_it`** | **Interrupciones.** Manejo de IRQs de Timers y EXTI (Sensores y E-STOP). |
 
 ---
 
 ## 🔌 Configuración de Hardware (Pinout)
 
 ### ⚡ Motores Paso a Paso (Drivers A4988)
-| Eje | Pin STEP | Pin DIR | Notas |
+Configurados en modo **Full Step** (sin microstepping).
+
+| Eje | Pin STEP | Pin DIR | Timer / Frecuencia |
 | :--- | :--- | :--- | :--- |
-| **X** | `PA0` | `PA3` | |
-| **Y** | `PA1` | `PA4` | |
-| **Z** | `PA2` | `PA5` | |
+| **X** | `PA0` | `PA3` | TIM2 (20 kHz) |
+| **Y** | `PA1` | `PA4` | TIM2 (20 kHz) |
+| **Z** | `PA2` | `PA5` | TIM2 (20 kHz) |
 | **Enable**| `PB8` | - | Activo en BAJO (Lógica negativa) |
 
 ### 🛑 Sensores y Seguridad (Input Pull-Up)
+Todos los sensores funcionan por interrupción externa (`EXTI`) para respuesta inmediata.
+
 | Función | Pin | Interrupción |
 | :--- | :--- | :--- |
-| **Fin X** | `PB12` | EXTI Line 12 |
-| **Fin Y** | `PB13` | EXTI Line 13 |
-| **Fin Z** | `PB14` | EXTI Line 14 |
-| **E-STOP**| `PB15` | EXTI Line 15 (Prioridad Máxima) |
+| **Fin de Carrera X** | `PB12` | EXTI Line 12 |
+| **Fin de Carrera Y** | `PB13` | EXTI Line 13 |
+| **Fin de Carrera Z** | `PB14` | EXTI Line 14 |
+| **E-STOP (Emergencia)**| `PB15` | EXTI Line 15 (Prioridad Máxima) |
 
 ### 📟 Periféricos Adicionales
-* **Servo (Gripper):** `PB9` (PWM TIM4 CH4).
-* **LCD I2C:** `PB6` (SCL), `PB7` (SDA).
+* **Servo (Gripper):** `PB9` (TIM4 CH4 - PWM 50Hz).
+* **LCD I2C:** `PB6` (SCL), `PB7` (SDA) - Dirección `0x4E` (o `0x27`).
 * **LEDs Estado:** `PB3` (Home), `PB4` (Finish), `PB5` (Wait).
-* **USB:** `PA11` (DM), `PA12` (DP).
+* **USB:** `PA11` (DM), `PA12` (DP) - Virtual COM Port.
 
 ---
 
-## ⏱️ Configuración de Timers y Velocidad
+## ⏱️ Configuración de Timers y Física
 
-El sistema utiliza interrupciones de temporizador para generar los pasos con precisión.
+### TIM2: Generador de Pasos (Step Engine)
+* **Prescaler:** 71, **Period:** 49 -> **20,000 Hz**.
+* Es el "metrónomo" del sistema. Cada 50µs verifica si un motor debe dar un paso.
+* **Control de Velocidad:** No se cambia la frecuencia del timer. Se calcula dinámicamente cuántos "ticks" de 50µs deben pasar entre paso y paso (`stepInterval`).
 
-### Asignación de Timers
-* **TIM2:** **Generación de Pasos.** Configurado a **20 kHz**. Es el "metrónomo" del sistema.
-* **TIM3:** **Base de Tiempo (Segundos).** Usado para *timeouts* en rutinas de homing (Watchdog por software).
-* **TIM4:** **PWM Servo.** Frecuencia 50Hz (Periodo 20ms) para control estándar de servos.
+### TIM3: Watchdog de Software
+* **Frecuencia:** 1 Hz (1 segundo).
+* Se usa durante el **Homing** para abortar la operación si un sensor no se activa en 15 segundos.
 
-### 📐 Cálculo de Velocidad
-Considerando el siguiente hardware estándar:
-* **Motor:** NEMA 17 (1.8° por paso = 200 pasos/vuelta).
-* **Driver:** A4988 en modo **Full Step** (Microstepping desactivado o MS1/MS2/MS3 a GND).
-* **Timer Frequency (`TIMER_FREQUENCY`):** 20,000 Hz.
+### TIM4: PWM Servo
+* **Frecuencia:** 50 Hz (Periodo 20ms).
+* Controla el ancho de pulso del servo (550µs a 2450µs).
 
-#### Fórmula de Frecuencia de Pasos
-El firmware recibe un valor de velocidad (V) que se interpreta directamente como frecuencia en Hz (Pasos por segundo).
+---
 
-$$IntervaloTimer = \frac{TIMER\_FREQUENCY}{VelocidadObj}$$
+## 📡 Protocolo de Comunicación USB
 
-#### Conversión a RPM
-Para saber la velocidad rotacional real del eje:
+El robot se conecta como un puerto serie virtual (COMx). Velocidad indiferente (CDC).
+Los comandos deben terminar con `\r\n` o `\n`.
 
-$$RPM = \frac{VelocidadObj \text{ (Hz)} \times 60}{200}$$
+### 1. Comandos de Configuración (`:-`)
 
-**Ejemplos Prácticos:**
+| Comando | Acción | Descripción |
+| :--- | :--- | :--- |
+| `:-H` | **Homing** | Inicia secuencia de calibración (X -> Y -> Z). Bloqueante. |
+| `:-Z` | **Set Zero** | Establece la posición actual como el origen (0,0,0). |
+| `:-V[val]` | **Set Speed** | Define velocidad máxima global en % (10-100). Ej: `:-V050`. |
+| `:-E[1/0]` | **Enable** | `1` Energiza motores, `0` libera el eje. Ej: `:-E1`. |
+| `:-A[ang]` | **Config Open** | Define ángulo de apertura de garra. Ej: `:-A120`. |
+| `:-P[ang]` | **Config Close**| Define ángulo de cierre de garra. Ej: `:-P090`. |
+| `:-S` | **STOP** | Parada de emergencia por software. |
 
-| Comando USB | Velocidad (Hz) | RPM (Eje Motor) | Descripción |
-| :--- | :--- | :--- | :--- |
-| `:-V010` | 100 Hz | **30 RPM** | Velocidad muy lenta (precisión). |
-| `:-V050` | 500 Hz | **150 RPM** | Velocidad media. |
-| `:-V100` | 1000 Hz | **300 RPM** | Velocidad rápida (Límite típico sin rampa). |
+### 2. Comandos de Movimiento (`:#`)
 
-> **Nota:** La variable `velocidadGlobal` en el código se escala multiplicando el input por 10 (Input 10-100 -> Output 100-1000 Hz).
+Formato: `:#X[pasos]Y[pasos]Z[pasos][C/A]`
+* Se pueden enviar ejes individuales o combinados.
+* `C`: Cierra la garra al finalizar.
+* `A`: Abre la garra al finalizar.
+
+**Ejemplos:**
+* `:#X200` -> Mueve X a la posición absoluta 200.
+* `:#X100Y100Z50C` -> Mueve los 3 ejes y cierra la garra.
+
+### 3. Telemetría (Respuesta Automática)
+
+El robot envía su estado cada 50ms (solo si hubo cambios).
+Formato: `STATUS|X:000|Y:000|Z:000|S:000|C:1|M:0`
+
+* **X, Y, Z:** Posición actual en pasos.
+* **S:** Estado Sensores (Binario `0ZYX`, 1=Activado).
+* **C:** Calibrado (1=Sí, 0=No).
+* **M:** En Movimiento (1=Sí, 0=No).
+
+---
+
+## 🚀 Características de Control de Movimiento
+
+El firmware implementa un perfil de velocidad **Trapezoidal** en tiempo real:
+
+1.  **Fase de Aceleración:** La velocidad aumenta linealmente (`accelRate`) desde `minVelocity` hasta `targetVelocity`.
+2.  **Fase de Crucero:** Mantiene la velocidad objetivo.
+3.  **Fase de Desaceleración:** Calcula la distancia de frenado y reduce la velocidad para llegar al destino exactamente a `minVelocity`.
+
+Esto previene la pérdida de pasos y vibraciones mecánicas al iniciar movimientos rápidos.
