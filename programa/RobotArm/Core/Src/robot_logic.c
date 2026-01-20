@@ -37,6 +37,8 @@ uint8_t homeMotor_X = 0;
 uint8_t homeMotor_Y = 0;
 uint8_t homeMotor_Z = 0;
 int homeStatus_Local = 0; // Para guardar resultado de homing
+int velocidadGlobal;
+
 
 // --- Implementación ---
 
@@ -139,23 +141,36 @@ uint8_t Robot_ModoCalibracion(void){
           return 0;
       }
 
-      // 6. VELOCIDAD GLOBAL (:-V050)
-      else if (buffer_rx[2] == 'V'){
-          CDC_FS_Substring(3, 5, buffer_rx, buffer_data[0]); // Lee 2 dígitos (ej 50) o 3 (100)
-          int velocidad = atoi(buffer_data[0]);
+		// 6. VELOCIDAD GLOBAL (:-V100)
+	  else if (buffer_rx[2] == 'V'){
+		  // CORRECCIÓN 1: Leer 3 dígitos (índices 3, 4, 5). El fin es 6.
+		  CDC_FS_Substring(3, 6, buffer_rx, buffer_data[0]);
 
-          if (velocidad > 0 && velocidad <= 100){
-              // Aplicamos velocidad base a todos (para movimientos manuales futuros)
-              for(int i=0; i<NUM_MOTORS; i++) {
-                   // Nota: Esto cambia la velocidad actual.
-                   // Si quieres solo cambiar la "por defecto", usa una variable global.
-                   // Pero cambiar la actual está bien si están parados.
-                   motors[i].velocity = velocidad;
-              }
-              sprintf(buffer_tx, "Velocidad Global: %d%%\r\n", velocidad); USB_Print(buffer_tx);
-          }
-          return 0;
-      }
+		  int porcentaje = atoi(buffer_data[0]); // Esto nos da 10 a 100
+
+		  if (porcentaje >= 10 && porcentaje <= 100){
+
+			  // CORRECCIÓN 2: Escalado.
+			  // Si porcentaje es 100, velocidad = 1000.
+			  // Si porcentaje es 10, velocidad = 100.
+			  int nuevaVelocidad = porcentaje * 10;
+
+			  // (Opcional) Si quieres forzar que el mínimo sea idéntico al homing (20):
+			  if (porcentaje <= 10) nuevaVelocidad = 20;
+
+			  // Guardamos en la variable global para futuros movimientos (:#...)
+			  velocidadGlobal = nuevaVelocidad;
+
+			  // Aplicamos inmediatamente por si queremos movernos ahora mismo
+			  for(int i=0; i<NUM_MOTORS; i++) {
+				   motors[i].velocity = velocidadGlobal;
+			  }
+
+			  sprintf(buffer_tx, "Velocidad Set: %d%% (%d pps)\r\n", porcentaje, nuevaVelocidad);
+			  USB_Print(buffer_tx);
+		  }
+		  return 0;
+	  }
 
       // 7. STOP EMERGENCIA (:-S)
       else if (buffer_rx[2] == 'S'){
@@ -189,18 +204,14 @@ uint8_t Robot_ModoEjecucion(void){
     int y = BuscarValor('Y', buffer_rx);
     int z = BuscarValor('Z', buffer_rx);
 
-    // DEFINIR UNA VELOCIDAD POR DEFECTO PARA MOVIMIENTOS
-    int velDefecto = 50; // 50% de velocidad (ajusta según necesites)
-
     // Validamos que al menos se haya enviado alguna coordenada
     if (x >= 0 || y >= 0 || z >= 0) {
 
         // Al llamar a moveMotors, pasamos &velDefecto en lugar de 0
         // Así aseguramos que el motor despierte del estado de reposo (vel=0)
-
-        if (x >= 0) moveMotors(&motors[0], &x, &velDefecto);
-        if (y >= 0) moveMotors(&motors[1], &y, &velDefecto);
-        if (z >= 0) moveMotors(&motors[2], &z, &velDefecto);
+    	if (x >= 0) moveMotors(&motors[0], &x, &velocidadGlobal);
+		if (y >= 0) moveMotors(&motors[1], &y, &velocidadGlobal);
+		if (z >= 0) moveMotors(&motors[2], &z, &velocidadGlobal);
 
         // Leemos estado actual real
 		int curX = motors[0].currentPosition;
