@@ -119,19 +119,38 @@ class Controller:
 
     def update_ui_connection_state(self, is_connected):
         """Bloquea o desbloquea los controles según el estado del hardware."""
-        # Pestaña de Ejecución
-        self.view.btn_load_file.setEnabled(is_connected)
-        self.view.btn_play.setEnabled(is_connected)
-        self.view.btn_pause.setEnabled(is_connected)
-        self.view.btn_stop_run.setEnabled(is_connected)
-        
-        # Pestaña de Aprendizaje (Opcional pero recomendado por seguridad)
-        self.view.btn_add_point.setEnabled(is_connected)
-        self.view.btn_save_file.setEnabled(is_connected)
         
         # Pestaña de Calibración
         self.view.btn_home.setEnabled(is_connected)
         self.view.btn_setzero.setEnabled(is_connected)
+        self.view.chk_enable.setEnabled(is_connected)
+        self.view.btn_set_open.setEnabled(is_connected)
+        self.view.btn_set_close.setEnabled(is_connected)
+        
+        # Pestaña de Aprendizaje 
+        self.view.btn_add_point.setEnabled(is_connected)
+        self.view.btn_save_file.setEnabled(is_connected)
+        self.view.btn_del_point.setEnabled(is_connected)
+        self.view.btn_clear_all.setEnabled(is_connected)
+        # Joggin
+        self.view.btn_home_xy.setEnabled(is_connected)
+        self.view.btn_home_z.setEnabled(is_connected)
+        self.view.btn_x_plus.setEnabled(is_connected)
+        self.view.btn_x_minus.setEnabled(is_connected)
+        self.view.btn_y_plus.setEnabled(is_connected)
+        self.view.btn_y_minus.setEnabled(is_connected)
+        self.view.btn_z_plus.setEnabled(is_connected)
+        self.view.btn_z_minus.setEnabled(is_connected)
+        self.view.btn_open_grip.setEnabled(is_connected)
+        self.view.btn_close_grip.setEnabled(is_connected)
+        self.view.slider_speed.setEnabled(is_connected)
+    
+        # Pestaña de Ejecución
+        # self.view.btn_load_file.setEnabled(is_connected)
+        # self.view.btn_preview.setEnabled(is_connected)        
+        self.view.btn_play.setEnabled(is_connected)
+        self.view.btn_pause.setEnabled(is_connected)
+        self.view.btn_stop_run.setEnabled(is_connected)
         
         # Si se desconecta, limpiar el label de archivo
         if not is_connected:
@@ -151,7 +170,7 @@ class Controller:
         new_val = self.current_pos[axis] + (step_deg * direction)
         
         # (Opcional) Limitar rangos si quisieras (ej: 0 a 180)
-        # if new_val < 0: new_val = 0
+        if new_val < 0: new_val = 0
         
         # 3. Actualizar registro interno
         self.current_pos[axis] = new_val
@@ -441,9 +460,9 @@ class Controller:
         # --- LÓGICA DE EJECUCIÓN ---
     def load_routine_dialog(self):
 
-        if not self.model.is_connected():
-            QMessageBox.critical(self.view, "Error de Hardware", "No se puede acceder al sistema de archivos sin un robot vinculado.")
-            return
+        # if not self.model.is_connected():
+        #     QMessageBox.critical(self.view, "Error de Hardware", "No se puede acceder al sistema de archivos sin un robot vinculado.")
+        #     return
         
         options = QFileDialog.Options()
         file_path, _ = QFileDialog.getOpenFileName(
