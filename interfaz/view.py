@@ -72,13 +72,32 @@ class View(QMainWindow):
         # A. Conexión
         grp_conn = QGroupBox("Conexión")
         lay_conn = QVBoxLayout(grp_conn)
+
+        # Layout horizontal para combo y botón de refrescar
+        h_lay_ports = QHBoxLayout() 
+
         self.combo_ports = QComboBox()
+        self.btn_refresh = QPushButton("R") # R de Refresh (o usa un icono)
+        self.btn_refresh.setFixedWidth(30)  # Botón pequeño
+
+        h_lay_ports.addWidget(self.combo_ports)
+        h_lay_ports.addWidget(self.btn_refresh)
+
         self.btn_connect = QPushButton("Conectar")
         self.btn_connect.setCheckable(True) 
+
         lay_conn.addWidget(QLabel("Puerto COM:"))
-        lay_conn.addWidget(self.combo_ports)
+        lay_conn.addLayout(h_lay_ports) # Agregamos el layout horizontal
         lay_conn.addWidget(self.btn_connect)
         layout.addWidget(grp_conn)
+
+        # self.combo_ports = QComboBox()
+        # self.btn_connect = QPushButton("Conectar")
+        # self.btn_connect.setCheckable(True) 
+        # lay_conn.addWidget(QLabel("Puerto COM:"))
+        # lay_conn.addWidget(self.combo_ports)
+        # lay_conn.addWidget(self.btn_connect)
+        # layout.addWidget(grp_conn)
         
         # B. Telemetría (LCDs)
         grp_pos = QGroupBox("Posición Actual")
