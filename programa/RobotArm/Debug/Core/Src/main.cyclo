@@ -1,6 +1,6 @@
 ../Core/Src/main.c:85:5:main	4
-../Core/Src/main.c:199:6:SystemClock_Config	4
-../Core/Src/main.c:241:6:HAL_TIM_PeriodElapsedCallback	3
-../Core/Src/main.c:253:6:HAL_GPIO_EXTI_Callback	1
-../Core/Src/main.c:265:6:Actualizar_LCD	4
-../Core/Src/main.c:308:6:Error_Handler	1
+../Core/Src/main.c:201:6:SystemClock_Config	4
+../Core/Src/main.c:243:6:HAL_TIM_PeriodElapsedCallback	3
+../Core/Src/main.c:255:6:HAL_GPIO_EXTI_Callback	1
+../Core/Src/main.c:267:6:Actualizar_LCD	4
+../Core/Src/main.c:310:6:Error_Handler	1

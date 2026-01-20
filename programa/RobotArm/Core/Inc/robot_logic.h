@@ -14,6 +14,9 @@ void Robot_Consignas(void);     // Imprime la ayuda
 uint8_t Robot_ModoCalibracion(void);
 uint8_t Robot_ModoAprendizaje(void);
 uint8_t Robot_ModoEjecucion(void);
+void Robot_UpdateTelemetry(void);
+
+
 
 // Función maestra que decide qué hacer según el comando recibido
 void Robot_ProcesarComando(char *cmd);

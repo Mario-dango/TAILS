@@ -42,6 +42,16 @@ class Controller:
         self.current_pos = {'x': 0, 'y': 0, 'z': 0}
         self.gripper_state = 'A' # A = Abierto, C = Cerrado
 
+        # Timer para efecto blink del LED Finish
+        self.blink_timer = QTimer()
+        self.blink_timer.timeout.connect(self.handle_finish_blink)
+        self.blink_count = 0
+
+        # Timer para parpadeo de alerta (HOME necesario)
+        self.alert_timer = QTimer()
+        self.alert_timer.timeout.connect(self.handle_home_alert_blink)
+        self.alert_blink_state = False
+
         self.init_control()
         self.update_ui_connection_state(False)
 
@@ -54,7 +64,7 @@ class Controller:
         self.view.btn_refresh.clicked.connect(self.refresh_ports)
 
         self.view.btn_connect.clicked.connect(self.toggle_connection)
-        self.view.combo_ports.mousePressEvent = lambda e: (self.refresh_ports(), self.update_ui_connection_state(self.model.is_connected()))
+        # self.view.combo_ports.mousePressEvent = lambda e: (self.refresh_ports(), self.update_ui_connection_state(self.model.is_connected()))
         
         # Consola
         self.view.btn_send_console.clicked.connect(self.handle_console_send)
@@ -88,6 +98,12 @@ class Controller:
         self.view.btn_add_point.clicked.connect(self.add_point_to_table)
         self.view.btn_del_point.clicked.connect(self.delete_point_from_table)
         self.view.btn_save_file.clicked.connect(self.save_routine_json)
+        # Nuevo: Limpiar lista aprendizaje
+        self.view.btn_clear_all.clicked.connect(self.clear_all_table)
+        
+        # Conectar acciones de velocidad
+        self.view.slider_speed.valueChanged.connect(self.handle_speed_change)
+        self.view.slider_speed.sliderReleased.connect(self.send_speed_command)
 
         # Nuevos botones de Home Parcial
         self.view.btn_home_xy.clicked.connect(self.handle_go_zero_xy)
@@ -98,6 +114,8 @@ class Controller:
         self.view.btn_play.clicked.connect(self.start_execution)
         self.view.btn_stop_run.clicked.connect(self.stop_execution)
         self.view.btn_pause.clicked.connect(self.pause_execution)
+        # Nuevo: Previsualizar ejecución
+        self.view.btn_preview.clicked.connect(self.preview_loaded_routine)
 
     def update_ui_connection_state(self, is_connected):
         """Bloquea o desbloquea los controles según el estado del hardware."""
@@ -318,8 +336,98 @@ class Controller:
             self.log_console("ERROR: ", "Robot no conectado.")
 
     def process_serial_data(self, data):
-        self.log_console("RX", data)
-        # Aquí irá el parser del estado de sensores más adelante
+            # La trama ahora es: STATUS|X:100|Y:0|Z:50|S:001|C:1|M:0
+            
+            # Filtrar log: Solo mostrar si NO es status repetitivo (opcional)
+            if not data.startswith("STATUS"):
+                self.log_console("RX", data) 
+
+            if data.startswith("STATUS|"):
+                try:
+                    parts = data.split('|')
+                    
+                    # 1. Posiciones
+                    x = int(parts[1].split(':')[1])
+                    y = int(parts[2].split(':')[1])
+                    z = int(parts[3].split(':')[1])
+                    
+                    # 2. Sensores
+                    sensors = parts[4].split(':')[1]
+                    s_x = sensors[0] == '1'
+                    s_y = sensors[1] == '1'
+                    s_z = sensors[2] == '1'
+
+                    # 3. NUEVO: Estados Extra (Calibrado y Moviendo)
+                    # Usamos un try/except interno por si tienes una versión vieja de firmware cargada
+                    is_calibrated = False
+                    is_moving = False
+                    if len(parts) > 5:
+                        is_calibrated = (parts[5].split(':')[1] == '1') # C:1
+                        is_moving = (parts[6].split(':')[1] == '1')     # M:1
+                    
+                    # --- ACTUALIZAR GUI ---
+                    # --- LÓGICA DE ALERTA HOME ---
+                    if is_calibrated:
+                        self.stop_home_alert() # Robot ya sabe dónde está
+                        
+                        # Pintar verde fijo (Lógica normal)
+                        self.view.lbl_status_home.setStyleSheet("") # Limpiar estilo manual del parpadeo
+                        self.view.lbl_status_home.setProperty("class", "status_badge_home_on")
+                        self.view.lbl_status_home.setText("HOME OK")
+                    else:
+                        # Si NO está calibrado, iniciar parpadeo de alerta
+                        self.start_home_alert()
+                    
+                    self.view.lbl_status_home.style().unpolish(self.view.lbl_status_home)
+                    self.view.lbl_status_home.style().polish(self.view.lbl_status_home)
+
+                    # 2. WAIT LED (Directo del STM32)
+                    estilo_wait = "status_badge_wait_on" if is_moving else "status_badge_off"
+                    self.view.lbl_status_wait.setProperty("class", estilo_wait)
+                    self.view.lbl_status_wait.style().unpolish(self.view.lbl_status_wait)
+                    self.view.lbl_status_wait.style().polish(self.view.lbl_status_wait)
+
+                    # LCDs y Registros
+                    self.view.lcd_x.display(x)
+                    self.view.lcd_y.display(y)
+                    self.view.lcd_z.display(z)
+                    self.current_pos = {'x': x, 'y': y, 'z': z}
+
+                    # LEDs Sensores
+                    self.update_sensor_leds(s_x, s_y, s_z)
+
+                    # INDICADORES VISUALES DE ESTADO
+                    # 1. Indicador de HOME (C)
+                    # Cambiamos el color del botón HOME según el estado
+                    if is_calibrated:
+                        self.view.btn_home.setStyleSheet("background-color: #2e7d32; color: white;") # Verde
+                        self.view.btn_home.setText("HOME OK (:-H)")
+                    else:
+                        self.view.btn_home.setStyleSheet("") # Color default
+                        self.view.btn_home.setText("HOME ALL (:-H)")
+
+                    # 2. Indicador de WAIT/MOVIENDO (M)
+                    # Podemos deshabilitar los controles manuales si se está moviendo
+                    # O poner un borde amarillo a la ventana
+                    if is_moving:
+                        # self.view.setStyleSheet("QMainWindow { border: 2px solid yellow; background-color: #2b2b2b; }")
+                        pass # Ya el LED virtual "WAIT" hace el trabajo visual
+                    else:
+                        # Restaurar estilo normal (solo fondo, sin borde amarillo)
+                        # Nota: Esto es un ejemplo simple, mejor sería tener un Label de estado.
+                        pass 
+
+                except Exception as e:
+                    pass # Evitar crash por tramas corruptas
+
+    def update_sensor_leds(self, x_active, y_active, z_active):
+        # Estilos definidos en style.css
+        style_on = "QLabel { background-color: #ff3333; border: 2px solid #ff0000; border-radius: 15px; }"
+        style_off = "QLabel { background-color: #333; border: 2px solid #555; border-radius: 15px; }"
+        
+        self.view.led_x.setStyleSheet(style_on if x_active else style_off)
+        self.view.led_y.setStyleSheet(style_on if y_active else style_off)
+        self.view.led_z.setStyleSheet(style_on if z_active else style_off)
 
     def log_console(self, prefix, message):
         color = "#ffffff"
@@ -366,8 +474,9 @@ class Controller:
             return
 
         self.is_executing = True
-        self.view.txt_run_log.append("--- INICIANDO EJECUCIÓN ---")
-        
+        self.view.txt_run_log.clear() 
+        self.view.txt_run_log.append("<b>--- INICIANDO EJECUCIÓN ---</b>")
+
         # Si estaba pausado, continuamos; si no, desde cero
         # (Aquí simplificamos: siempre desde cero si le das a Play salvo pausa)
         if self.execution_index >= len(self.loaded_routine):
@@ -432,6 +541,110 @@ class Controller:
         else:
             # Fin de rutina
             self.stop_execution()
+            self.trigger_finish_signal()
             self.view.txt_run_log.append("--- RUTINA COMPLETADA ---")
             self.view.progress_bar.setValue(100)
             QMessageBox.information(self.view, "Fin", "Ejecución finalizada con éxito.")
+
+    def preview_loaded_routine(self):
+        if not self.loaded_routine:
+            QMessageBox.warning(self.view, "Aviso", "Primero carga una rutina.")
+            return
+
+        # Limpiamos el log para mostrar solo la rutina
+        self.view.txt_run_log.clear()
+        self.view.txt_run_log.append("<b>--- CONTENIDO DE LA RUTINA ---</b>")
+        
+        # Iteramos y mostramos en color diferente (ej: Cyan)
+        for i, step in enumerate(self.loaded_routine):
+            # Formateamos el texto amigable
+            linea = f"Paso {i+1}: X{step.get('x')} | Y{step.get('y')} | Z{step.get('z')}"
+            if 'g' in step:
+                garra = "CERRAR" if step['g'] == 'C' else "ABRIR"
+                linea += f" | Garra: {garra}"
+            
+            # Insertar HTML con color
+            self.view.txt_run_log.append(f'<span style="color:#00bcd4;">{linea}</span>')
+            
+        self.view.txt_run_log.append("---------------------------------")
+
+    def clear_all_table(self):
+        # Verificar si hay algo que borrar
+        if self.view.table_points.rowCount() == 0:
+            return
+
+        # Pop-up de confirmación
+        reply = QMessageBox.question(
+            self.view, 
+            'Confirmar Limpieza', 
+            "¿Estás seguro de que quieres borrar TODOS los puntos de la lista?\nEsta acción no se puede deshacer.",
+            QMessageBox.Yes | QMessageBox.No, 
+            QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            self.view.table_points.setRowCount(0)
+            self.log_console("INFO", "Tabla de puntos limpiada.")
+
+    def trigger_finish_signal(self):
+        # Inicia el parpadeo (5 veces)
+        self.blink_count = 0
+        self.blink_timer.start(500) # Cambia cada 500ms
+        self.log_console("INFO", "Ciclo Finalizado.")
+
+    def handle_finish_blink(self):
+        self.blink_count += 1
+        
+        # Alternar ON/OFF
+        if self.blink_count % 2 != 0:
+            self.view.lbl_status_finish.setProperty("class", "status_badge_finish_on")
+        else:
+            self.view.lbl_status_finish.setProperty("class", "status_badge_off")
+            
+        # Refrescar estilo
+        self.view.lbl_status_finish.style().unpolish(self.view.lbl_status_finish)
+        self.view.lbl_status_finish.style().polish(self.view.lbl_status_finish)
+        
+        # Parar después de 6 cambios (3 parpadeos completos)
+        if self.blink_count >= 6:
+            self.blink_timer.stop()
+            self.view.lbl_status_finish.setProperty("class", "status_badge_off") # Apagar al final
+            self.view.lbl_status_finish.style().unpolish(self.view.lbl_status_finish)
+            self.view.lbl_status_finish.style().polish(self.view.lbl_status_finish)
+
+    def handle_speed_change(self, value):
+        # Solo actualiza la etiqueta visualmente mientras arrastras
+        self.view.lbl_speed_val.setText(f"{value}%")
+
+    def send_speed_command(self):
+        # Se envía solo al soltar el mouse para no saturar el puerto
+        val = self.view.slider_speed.value()
+        cmd = f":-V{val:03d}" # Ejemplo: :-V050
+        self.send_command(cmd)
+        self.log_console("INFO", f"Velocidad ajustada a {val}%")
+
+
+    def start_home_alert(self):
+        if not self.alert_timer.isActive():
+            self.alert_timer.start(500) # Parpadeo cada 500ms
+            self.log_console("ALERTA", "Se requiere Homing inicial.")
+
+    def stop_home_alert(self):
+        if self.alert_timer.isActive():
+            self.alert_timer.stop()
+            # Restaurar estilo normal (Apagado o Verde según lógica externa)
+            self.view.lbl_status_home.setProperty("class", "status_badge_off")
+            self.view.lbl_status_home.style().unpolish(self.view.lbl_status_home)
+            self.view.lbl_status_home.style().polish(self.view.lbl_status_home)
+
+    def handle_home_alert_blink(self):
+        self.alert_blink_state = not self.alert_blink_state
+        
+        # Parpadeo entre ROJO (Atención) y GRIS
+        if self.alert_blink_state:
+            # Necesitamos definir este estilo en style.css o usar uno temporal
+            self.view.lbl_status_home.setStyleSheet("background-color: #d32f2f; color: white; border-radius: 4px; border: 1px solid #ff5252;") 
+            self.view.lbl_status_home.setText("REQ. HOMING")
+        else:
+            self.view.lbl_status_home.setStyleSheet("background-color: #333; color: #555; border-radius: 4px; border: 1px solid #444;")
+            self.view.lbl_status_home.setText("HOME")
