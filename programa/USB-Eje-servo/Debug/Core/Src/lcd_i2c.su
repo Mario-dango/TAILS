@@ -1,0 +1,12 @@
+../Core/Src/lcd_i2c.c:4:6:Lcd_Send_Cmd	32	static
+../Core/Src/lcd_i2c.c:17:6:Lcd_Send_Char	32	static
+../Core/Src/lcd_i2c.c:30:6:Lcd_Init	8	static
+../Core/Src/lcd_i2c.c:40:6:Lcd_Clear	8	static
+../Core/Src/lcd_i2c.c:46:6:Lcd_Set_Cursor	24	static
+../Core/Src/lcd_i2c.c:69:6:Lcd_Send_String	16	static
+../Core/Src/lcd_i2c.c:74:6:Lcd_Shift_Right	8	static
+../Core/Src/lcd_i2c.c:79:6:Lcd_Shift_Left	8	static
+../Core/Src/lcd_i2c.c:84:6:Lcd_Blink	8	static
+../Core/Src/lcd_i2c.c:89:6:Lcd_NoBlink	8	static
+../Core/Src/lcd_i2c.c:94:6:Lcd_CGRAM_CreateChar	24	static
+../Core/Src/lcd_i2c.c:106:6:Lcd_CGRAM_WriteChar	16	static

@@ -1,0 +1,9 @@
+../Core/Src/motor_driver.c:27:6:Motor_Init	16	static
+../Core/Src/motor_driver.c:38:6:ActivatedAll	24	static
+../Core/Src/motor_driver.c:56:6:moveMotors	24	static
+../Core/Src/motor_driver.c:111:6:CalculateSpeed	24	static
+../Core/Src/motor_driver.c:150:5:HomingMotors	40	static
+../Core/Src/motor_driver.c:221:6:Motor_Timer_Callback	16	static
+../Core/Src/motor_driver.c:252:6:Motor_Sensor_Triggered	16	static
+../Core/Src/motor_driver.c:277:5:targetComplete	24	static
+../Core/Src/motor_driver.c:287:7:deg2rad	16	static

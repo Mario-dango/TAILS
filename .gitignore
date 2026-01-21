@@ -1,3 +1,9 @@
 # Se agregó el git ignore para poder desacoplar la carpeta de metadata del entonro de STM32cubeIDE
 
 programa/.metadata/
+
+# Se agregó al git ignore la carpeta de PyCache correspondiente al apartado de interfaz
+
+interfaz/__pycache__
+# También alguna configuración que pueda aparecer desde el entorno de VSCode
+interfaz/.vscode

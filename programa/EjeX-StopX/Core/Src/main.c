@@ -18,9 +18,13 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "tim.h"
+#include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+
+#include <math.h>
 
 /* USER CODE END Includes */
 
@@ -40,27 +44,56 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-TIM_HandleTypeDef htim2;
-TIM_HandleTypeDef htim3;
-TIM_HandleTypeDef htim4;
 
 /* USER CODE BEGIN PV */
 
-uint32_t velMotor1 = 0;
-uint16_t thetaMotor1 = 0;
+//	Vel Motors
+uint16_t velMotor_X = 0;
+uint16_t velMotor_Y = 0;
+uint16_t velMotor_Z = 0;
+
+//	Dir Motors
+uint8_t DirM_X = 0;
+uint8_t DirM_Y = 0;
+uint8_t DirM_Z = 0;
+
+// Step Motors
+float thetaMotor_X = 1;
+float thetaMotor_Y = 1;
+float thetaMotor_Z = 1;
+
+//	FLAGS STOP GLOBALES
+uint8_t flagStopM_X = 0;
+uint8_t flagStopM_Y = 0;
+uint8_t flagStopM_Z = 0;
+
+//	FLAGS OPTICAL LIMIT SWITCH SENSOR PER AXIS GLOBALES
+uint8_t opticalLimitSwitchSensor_X = 0;
+uint8_t opticalLimitSwitchSensor_Y = 0;
+uint8_t opticalLimitSwitchSensor_Z = 0;
+
+///// Factor de microStepping
+uint8_t microSteppingM_X = 1;
+uint8_t microSteppingM_Y = 1;
+uint8_t microSteppingM_Z = 1;
+
 // uint32_t adcVal;					// Arreglo para guardar los valores leidos del conversor ADC
-uint32_t counter = 0;
+uint32_t contador = 0;
 
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
-static void MX_GPIO_Init(void);
-static void MX_TIM2_Init(void);
-static void MX_TIM3_Init(void);
-static void MX_TIM4_Init(void);
 /* USER CODE BEGIN PFP */
 
+int HomingMotors(uint8_t* hmX, uint8_t* hmY, uint8_t* hmZ);
+void ActivatedAll (void);
+float deg2rad(float degrees);
+
+//void moverMotor_eje(char eje, float *thetaTarget, uint16_t velocidadTarget);
+void moverX(float target, uint16_t velocidad);
+
+// extras
 // void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim);		// Función para el manejo de interrupciones del Timer 2
 // void EXTI9_5_IRQHandler(void);		// Función para manejo de la interrupciones externas por fin de carrera
 // void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc);
@@ -101,26 +134,44 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+
   MX_TIM2_Init();
   MX_TIM3_Init();
   MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
 
+
+  ///// Configurar los Buses Reset, Sleep y Enable
+  HAL_GPIO_WritePin(ResetMotors_GPIO_Port, ResetMotors_Pin, SET);
+  HAL_GPIO_WritePin(SleepMotors_GPIO_Port, SleepMotors_Pin, SET);
+  HAL_GPIO_WritePin(EnableMotors_GPIO_Port, EnableMotors_Pin, SET);
+
   HAL_TIM_Base_Start_IT(&htim3);
-  HAL_TIM_PWM_Start(&htim2, TIM_OCMODE_PWM1);
-  HAL_TIM_Base_Start(&htim2);			// Iniciar el temporizador con interrupción
+  HAL_TIM_Base_Start_IT(&htim2);			// Iniciar el temporizador con interrupción
 
-
-  TIM2->ARR = 15000;
+/*
+  TIM2->ARR = 8000;
   TIM2->CCR1 = 7500;
 
   TIM4->ARR = 9999;
   TIM4->CCR4 = 5000;
+*/
 
   HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_4);
   HAL_TIM_Base_Start_IT(&htim4);			// Iniciar el temporizador con interrupción
 
-  HAL_Delay(1000);
+  ///// Flags de Homing
+  uint8_t homeMotor_X = 0;
+  uint8_t homeMotor_Y = 0;
+  uint8_t homeMotor_Z = 0;
+  int countHome = 0;
+
+  ///// Thetas objetivos
+  float thetaTargetMotor_X = 0;
+  float thetaTargetMotor_Y = 0;
+  float thetaTargetMotor_Z = 0;
+
+  uint16_t velocidadTargetMotor_X = 0;
 
   /* USER CODE END 2 */
 
@@ -128,6 +179,44 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	  // Caso de uso sin Motor Y
+	  flagStopM_Y = 1;
+	  thetaTargetMotor_Y = 0;
+	  // Caso de uso sin Motor Z
+	  flagStopM_Z = 1;
+	  thetaTargetMotor_Z = 0;
+
+	  //HAL_Delay(1000);
+	  if (countHome == 0){
+		  countHome = HomingMotors(&homeMotor_X, &homeMotor_Y, &homeMotor_Z);
+		  HAL_Delay(700);
+		  HAL_GPIO_WritePin(azul_GPIO_Port, azul_Pin, RESET);
+	  }
+
+	  // Movimiento consigna
+	  thetaTargetMotor_X = 200.0;
+	  velocidadTargetMotor_X = 5;
+	  moverX(thetaTargetMotor_X, velocidadTargetMotor_X);
+	  HAL_Delay(1000);
+	  thetaTargetMotor_X = 50.0;
+	  velocidadTargetMotor_X = 2;
+	  moverX(thetaTargetMotor_X, velocidadTargetMotor_X);
+	  HAL_Delay(1000);
+	  thetaTargetMotor_X = 150.0;
+	  velocidadTargetMotor_X = 10;
+	  moverX(thetaTargetMotor_X, velocidadTargetMotor_X);
+	  HAL_Delay(1000);
+	  thetaTargetMotor_X = 0.0;
+	  velocidadTargetMotor_X = 1;
+	  moverX(thetaTargetMotor_X, velocidadTargetMotor_X);
+	  HAL_Delay(1000);
+	  /*
+	  thetaTargetMotor_X = 100.0;
+	  velocidadTargetMotor_X = 50;
+	  moverX(thetaTargetMotor_X, velocidadTargetMotor_X);
+	  HAL_Delay(1000);
+
+	  /*
 	  int miCcr = 0;  // Inicializamos el valor del CCR1 en 0
 	  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);  // Iniciamos la generación de PWM en el canal 1
 	  HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_4);
@@ -144,6 +233,8 @@ int main(void)
 	  HAL_TIM_PWM_Stop(&htim4, TIM_CHANNEL_4);
 	  HAL_GPIO_TogglePin(DirM_X_GPIO_Port, DirM_X_Pin);
 	  HAL_Delay(1000);
+	  */
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -190,237 +281,115 @@ void SystemClock_Config(void)
   }
 }
 
-/**
-  * @brief TIM2 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM2_Init(void)
-{
-
-  /* USER CODE BEGIN TIM2_Init 0 */
-
-  /* USER CODE END TIM2_Init 0 */
-
-  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
-  TIM_MasterConfigTypeDef sMasterConfig = {0};
-  TIM_OC_InitTypeDef sConfigOC = {0};
-
-  /* USER CODE BEGIN TIM2_Init 1 */
-
-  /* USER CODE END TIM2_Init 1 */
-  htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 71;
-  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 10000;
-  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
-  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_TIM_PWM_Init(&htim2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 5000;
-  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
-  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  __HAL_TIM_DISABLE_OCxPRELOAD(&htim2, TIM_CHANNEL_1);
-  /* USER CODE BEGIN TIM2_Init 2 */
-
-  /* USER CODE END TIM2_Init 2 */
-  HAL_TIM_MspPostInit(&htim2);
-
-}
-
-/**
-  * @brief TIM3 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM3_Init(void)
-{
-
-  /* USER CODE BEGIN TIM3_Init 0 */
-
-  /* USER CODE END TIM3_Init 0 */
-
-  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
-  TIM_MasterConfigTypeDef sMasterConfig = {0};
-
-  /* USER CODE BEGIN TIM3_Init 1 */
-
-  /* USER CODE END TIM3_Init 1 */
-  htim3.Instance = TIM3;
-  htim3.Init.Prescaler = 35999;
-  htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 2000;
-  htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim3, &sClockSourceConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM3_Init 2 */
-
-  /* USER CODE END TIM3_Init 2 */
-
-}
-
-/**
-  * @brief TIM4 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM4_Init(void)
-{
-
-  /* USER CODE BEGIN TIM4_Init 0 */
-
-  /* USER CODE END TIM4_Init 0 */
-
-  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
-  TIM_MasterConfigTypeDef sMasterConfig = {0};
-  TIM_OC_InitTypeDef sConfigOC = {0};
-
-  /* USER CODE BEGIN TIM4_Init 1 */
-
-  /* USER CODE END TIM4_Init 1 */
-  htim4.Instance = TIM4;
-  htim4.Init.Prescaler = 71;
-  htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim4.Init.Period = 9999;
-  htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim4) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim4, &sClockSourceConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_TIM_PWM_Init(&htim4) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim4, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 5000;
-  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
-  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-  if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_4) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM4_Init 2 */
-
-  /* USER CODE END TIM4_Init 2 */
-  HAL_TIM_MspPostInit(&htim4);
-
-}
-
-/**
-  * @brief GPIO Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_GPIO_Init(void)
-{
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
-/* USER CODE BEGIN MX_GPIO_Init_1 */
-/* USER CODE END MX_GPIO_Init_1 */
-
-  /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOC_CLK_ENABLE();
-  __HAL_RCC_GPIOD_CLK_ENABLE();
-  __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOB_CLK_ENABLE();
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(LedPcb_GPIO_Port, LedPcb_Pin, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, azul_Pin|DirM_X_Pin, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, ResetMotors_Pin|SleepMotors_Pin|EnableMotors_Pin, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin : LedPcb_Pin */
-  GPIO_InitStruct.Pin = LedPcb_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(LedPcb_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : azul_Pin DirM_X_Pin */
-  GPIO_InitStruct.Pin = azul_Pin|DirM_X_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : StopM_X_Pin */
-  GPIO_InitStruct.Pin = StopM_X_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(StopM_X_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : ResetMotors_Pin SleepMotors_Pin EnableMotors_Pin */
-  GPIO_InitStruct.Pin = ResetMotors_Pin|SleepMotors_Pin|EnableMotors_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-  /* EXTI interrupt init*/
-  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
-
-/* USER CODE BEGIN MX_GPIO_Init_2 */
-/* USER CODE END MX_GPIO_Init_2 */
-}
-
 /* USER CODE BEGIN 4 */
+
+int HomingMotors(uint8_t* hmX, uint8_t* hmY, uint8_t* hmZ){
+
+	ActivatedAll();
+
+	velMotor_X = 100;
+	velMotor_Y = 100;
+	velMotor_Z = 100;
+
+	while (*hmX == 0){
+		*hmX = flagStopM_X;
+	}
+	while (*hmY == 0){
+		*hmY = flagStopM_Y;
+	}
+	while (*hmZ == 0){
+		*hmZ = flagStopM_Z;
+	}
+	velMotor_X = 0;
+	velMotor_Y = 0;
+	velMotor_Z = 0;
+	thetaMotor_X = 0;
+	thetaMotor_Y = 0;
+	thetaMotor_Z = 0;
+
+	moverX(2, 70);
+	return 1;
+}
+
+void moverX(float target, uint16_t velocidad){
+	while (thetaMotor_X != target){
+		// llegar a objetico
+		while (thetaMotor_X > target){
+			DirM_X = 1;
+			HAL_GPIO_WritePin(DirM_X_GPIO_Port, DirM_X_Pin, SET);
+			velMotor_X = velocidad;
+			// alcanzar el objetivo
+		}
+		while (thetaMotor_X < target){
+			DirM_X = 0;
+			HAL_GPIO_WritePin(DirM_X_GPIO_Port, DirM_X_Pin, RESET);
+			velMotor_X = velocidad;
+		}
+		//*flagStop = 1;
+		velMotor_X = 0;
+	}
+}
+/*
+void moverEje(char eje, float target, uint16_t velocidad) {
+    float* thetaMotor;
+    GPIO_TypeDef* dirPort;
+    uint16_t dirPin;
+
+    if (eje == 'x') {
+        thetaMotor = &thetaMotor_X;
+        dirPort = DirM_X_GPIO_Port;
+        dirPin = DirM_X_Pin;
+    } else if (eje == 'y') {
+        thetaMotor = &thetaMotor_Y;
+        dirPort = DirM_Y_GPIO_Port;
+        dirPin = DirM_Y_Pin;
+    } else if (eje == 'z') {
+        thetaMotor = &thetaMotor_Z;
+        dirPort = DirM_Z_GPIO_Port;
+        dirPin = DirM_Z_Pin;
+    } else {
+        // Manejo de error en caso de que se proporcione un carácter no válido
+        return;
+    }
+
+    while (*thetaMotor != target) {
+        // Llegar al objetivo en el eje especificado
+        if (*thetaMotor > target) {
+            HAL_GPIO_WritePin(dirPort, dirPin, SET);
+        } else if (*thetaMotor < target) {
+            HAL_GPIO_WritePin(dirPort, dirPin, RESET);
+        }
+
+        velMotor_X = velocidad;  // Se actualiza la velocidad según el eje actual
+
+        // Alcanzar el objetivo en el eje especificado
+
+        velMotor_X = 0;  // Se detiene el motor en el eje actual
+    }
+}
+*/
+void ActivatedAll (void){
+	  HAL_GPIO_WritePin(ResetMotors_GPIO_Port, ResetMotors_Pin, RESET);
+	  HAL_GPIO_WritePin(SleepMotors_GPIO_Port, SleepMotors_Pin, RESET);
+	  HAL_GPIO_WritePin(EnableMotors_GPIO_Port, EnableMotors_Pin, RESET);
+}
+
+float deg2rad(float degrees) {
+  return degrees * (M_PI / 180.0);
+}
 
 // Función de retrollamada (callback) para la interrupción externa EXTI3
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-	HAL_GPIO_TogglePin(azul_GPIO_Port, azul_Pin);
+	if (GPIO_Pin == StopM_X_Pin){
+		if (flagStopM_X == 1){
+			flagStopM_X = 0;
+		} else {
+			velMotor_X = 0;
+			flagStopM_X = 1;
+		}
+		HAL_GPIO_TogglePin(azul_GPIO_Port, azul_Pin);
+	}
 	/*
 	 *
 	if (GPIO_Pin == GPIO_PIN_9)
@@ -453,69 +422,32 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 // Función de retrollamada (callback) para la interrupción de desbordamiento del temporizador TIM2
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
-	  if (htim->Instance == TIM2)  // Verificar si la interrupción es del temporizador TIM2
-	  {
-		  if (counter < 1000)
-		  {
-			  counter++;
-		  }
-		  else
-		  {
-			  counter = 0;
-		  }
-	  }
-
-	/*
   if (htim->Instance == TIM2)  // Verificar si la interrupción es del temporizador TIM2
   {
-
-    // Mover el motor durante 1 segundo
-    if (counter == 0 || counter == 1)
-    {
-      HAL_TIM_PWM_Start(&htim2, StepM_X_Pin);  // Iniciar la generación de la señal PWM en el canal 1
-  	TIM2->CCR1 = 5000;
-
-    }
-    // Detener el motor durante 1 segundo
-    else if (counter == 500)
-    {
-    	TIM2->CCR1 = 7500;
-    }
-    else if (counter == 1000)
-    {
-    	// TIM2->ARR = 1000;
-        TIM2->CCR1 = 3500;
-    }
-    else if (counter == 2000)
-    {
-    	// TIM2->ARR = 1000;
-        TIM2->CCR1 = 1500;
-    }
-    else if (counter == 3000)
-    {
-    	// TIM2->ARR = 1000;
-        TIM2->CCR1 = 5000;
-    }
-    else if (counter == 4000)
-    {
-      HAL_TIM_PWM_Stop(&htim2, StepM_X_Pin);  // Detener la generación de la señal PWM en el canal 1
-    }
-    else if (counter == 5000)
-    {
-      counter = 0;  // Reiniciar el contador para repetir el ciclo
-      // HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);  // Iniciar la generación de la señal PWM en el canal 1
-      // TIM2->CCR1 = 2500;
-    }
-
-    counter++;
+	  contador++;
+	  if ((velMotor_X > 0) && (contador % velMotor_X == 0))
+	  {
+		  if (flagStopM_X == 0){
+			  HAL_GPIO_WritePin(StepM_X_GPIO_Port, StepM_X_Pin, SET);
+			  if (DirM_X == 0){
+				  thetaMotor_X = (thetaMotor_X + 1) / microSteppingM_X;
+			  } else {
+				  thetaMotor_X = (thetaMotor_X - 1) / microSteppingM_X;
+			  }
+		  }
+		  contador = 0;
+		  HAL_GPIO_WritePin(StepM_X_GPIO_Port, StepM_X_Pin, RESET);
+	  }
+	  else
+	  {
+		  //
+	  }
   }
-*/
   if (htim->Instance == TIM3)  // Verificar si la interrupción es del temporizador TIM3
   {
 	  HAL_GPIO_TogglePin(LedPcb_GPIO_Port, LedPcb_Pin);		// Cambia el estado del led PC13 cada vez que salta la interrupción
   }
 }
-
 
 /* USER CODE END 4 */
 

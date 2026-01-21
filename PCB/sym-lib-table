@@ -1,4 +1,5 @@
 (sym_lib_table
-  (lib (name STM32)(type Legacy)(uri "E:/UNCuyo/Cursadas/Microcontroladores y Electronica de potencia/robotArm/robot_arm/PCB/Kicad-STM32-master/Symbols/YAAJ_BluePill.lib")(options "")(descr ""))
-  (lib (name robotArm-rescue)(type Legacy)(uri ${KIPRJMOD}/robotArm-rescue.lib)(options "")(descr ""))
+  (version 7)
+  (lib (name "STM32")(type "Legacy")(uri "E:/UNCuyo/Cursadas/Microcontroladores y Electronica de potencia/robotArm/robot_arm/PCB/Kicad-STM32-master/Symbols/YAAJ_BluePill.lib")(options "")(descr ""))
+  (lib (name "robotArm-rescue")(type "KiCad")(uri "${KIPRJMOD}/robotArm-rescue.kicad_sym")(options "")(descr ""))
 )

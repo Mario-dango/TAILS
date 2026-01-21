@@ -1,0 +1,177 @@
+/* --- ESTILO GENERAL --- */
+QMainWindow, QWidget {
+    background-color: #2b2b2b;
+    color: #e0e0e0;
+    font-family: 'Segoe UI', Arial, sans-serif;
+    font-size: 13px;
+}
+
+/* --- PANELES Y AGRUPADORES --- */
+QGroupBox {
+    border: 1px solid #4d4d4d;
+    border-radius: 5px;
+    margin-top: 20px;
+    font-weight: bold;
+    color: #00aaff; /* Título en Azul Claro */
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 10px;
+    padding: 0 3px;
+}
+
+/* --- PESTAÑAS (TAB WIDGET) - CORRECCIÓN DE CONTRASTE --- */
+QTabWidget::pane {
+    border: 1px solid #444;
+    background: #2b2b2b;
+}
+QTabBar::tab {
+    background: #1e1e1e; /* Fondo oscuro por defecto */
+    color: #aaaaaa;       /* Texto gris claro */
+    border: 1px solid #444;
+    padding: 8px 15px;
+    margin-right: 2px;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+}
+QTabBar::tab:selected {
+    background: #3a3a3a;  /* Fondo un poco más claro al seleccionar */
+    color: #00aaff;       /* Texto azul brillante */
+    border-bottom-color: #3a3a3a;
+    font-weight: bold;
+}
+QTabBar::tab:hover {
+    background: #333;
+    color: #ffffff;
+}
+
+/* --- BOTONES --- */
+QPushButton {
+    background-color: #3a3a3a;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 6px;
+    color: #e0e0e0;
+    min-height: 25px;
+}
+QPushButton:hover {
+    background-color: #444;
+    border-color: #00aaff;
+}
+QPushButton:pressed {
+    background-color: #222;
+    border-color: #005577;
+}
+
+/* --- BOTÓN STOP --- */
+QPushButton[class="stop_button"] {
+    background-color: #b71c1c;
+    color: white;
+    font-weight: bold;
+    font-size: 16px;
+    border: 2px solid #ff5252;
+}
+QPushButton[class="stop_button"]:hover {
+    background-color: #d32f2f;
+}
+
+/* --- INPUTS, COMBOS, TABLAS --- */
+QLineEdit, QComboBox, QTextEdit, QTableWidget {
+    background-color: #1e1e1e;
+    border: 1px solid #3d3d3d;
+    border-radius: 3px;
+    color: #00ff00; /* Texto verde estilo terminal */
+    padding: 4px;
+    selection-background-color: #00aaff;
+}
+QHeaderView::section {
+    background-color: #333;
+    color: #e0e0e0;
+    border: 1px solid #444;
+    padding: 4px;
+}
+
+/* --- INDICADORES LED (Círculos) --- */
+QLabel#sensor_led_off {
+    background-color: #333;
+    border: 2px solid #555;
+    border-radius: 15px;
+    color: #777;
+    qproperty-alignment: AlignCenter;
+}
+QLabel#sensor_led_on {
+    background-color: #ff3333;
+    border: 2px solid #ff0000;
+    border-radius: 15px;
+    color: white;
+    font-weight: bold;
+    qproperty-alignment: AlignCenter;
+}
+
+/* --- INDICADORES LED (Círculos) --- */
+QLabel#sensor_led_off {
+    background-color: #333;       /* Gris oscuro (Apagado) */
+    border: 2px solid #555;       /* Borde gris */
+    border-radius: 15px;          /* Radio 15px hace que un cuadrado de 30px sea un círculo */
+    min-width: 30px;              /* Ancho fijo vital */
+    min-height: 30px;             /* Alto fijo vital */
+    max-width: 30px;
+    max-height: 30px;
+    color: #777;                  /* Color de la letra */
+    qproperty-alignment: AlignCenter;
+    font-weight: bold;
+}
+
+QLabel#sensor_led_on {
+    background-color: #ff3333;    /* Rojo brillante (Prendido) */
+    border: 2px solid #ff0000;
+    border-radius: 15px;
+    min-width: 30px;
+    min-height: 30px;
+    max-width: 30px;
+    max-height: 30px;
+    color: white;
+    font-weight: bold;
+    qproperty-alignment: AlignCenter;
+}
+
+/* --- BADGES DE ESTADO (HOME, WAIT, FINISH) --- */
+QLabel[class="status_badge_off"] {
+    background-color: #333;
+    color: #555;
+    border: 1px solid #444;
+    border-radius: 4px;
+    padding: 4px;
+    font-weight: bold;
+    qproperty-alignment: AlignCenter;
+}
+
+QLabel[class="status_badge_home_on"] {
+    background-color: #2e7d32; /* Verde Oscuro */
+    color: white;
+    border: 1px solid #4caf50;
+    border-radius: 4px;
+    padding: 4px;
+    font-weight: bold;
+    qproperty-alignment: AlignCenter;
+}
+
+QLabel[class="status_badge_wait_on"] {
+    background-color: #fbc02d; /* Amarillo */
+    color: black;
+    border: 1px solid #ffeb3b;
+    border-radius: 4px;
+    padding: 4px;
+    font-weight: bold;
+    qproperty-alignment: AlignCenter;
+}
+
+QLabel[class="status_badge_finish_on"] {
+    background-color: #0277bd; /* Azul */
+    color: white;
+    border: 1px solid #03a9f4;
+    border-radius: 4px;
+    padding: 4px;
+    font-weight: bold;
+    qproperty-alignment: AlignCenter;
+}

@@ -49,8 +49,6 @@ extern "C" {
 
 /* USER CODE END EM */
 
-void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
-
 /* Exported functions prototypes ---------------------------------------------*/
 void Error_Handler(void);
 
@@ -63,15 +61,17 @@ void Error_Handler(void);
 #define LedPcb_GPIO_Port GPIOC
 #define StepM_X_Pin GPIO_PIN_0
 #define StepM_X_GPIO_Port GPIOA
-#define azul_Pin GPIO_PIN_2
-#define azul_GPIO_Port GPIOA
+#define salidaA_Pin GPIO_PIN_2
+#define salidaA_GPIO_Port GPIOA
 #define DirM_X_Pin GPIO_PIN_3
 #define DirM_X_GPIO_Port GPIOA
-#define StopM_X_Pin GPIO_PIN_14
-#define StopM_X_GPIO_Port GPIOB
-#define StopM_X_EXTI_IRQn EXTI15_10_IRQn
+#define azul_Pin GPIO_PIN_7
+#define azul_GPIO_Port GPIOA
 #define ResetMotors_Pin GPIO_PIN_15
 #define ResetMotors_GPIO_Port GPIOB
+#define StopM_X_Pin GPIO_PIN_11
+#define StopM_X_GPIO_Port GPIOA
+#define StopM_X_EXTI_IRQn EXTI15_10_IRQn
 #define SleepMotors_Pin GPIO_PIN_5
 #define SleepMotors_GPIO_Port GPIOB
 #define EnableMotors_Pin GPIO_PIN_8
