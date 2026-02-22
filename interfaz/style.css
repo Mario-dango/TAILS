@@ -29,7 +29,8 @@ QTabBar::tab {
     background: #1e1e1e; /* Fondo oscuro por defecto */
     color: #aaaaaa;       /* Texto gris claro */
     border: 1px solid #444;
-    padding: 8px 15px;
+    padding: 8px 25px;
+    min-width: 120px;
     margin-right: 2px;
     border-top-left-radius: 4px;
     border-top-right-radius: 4px;

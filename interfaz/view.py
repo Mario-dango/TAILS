@@ -4,15 +4,25 @@ from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QLineEdit, QCheckBox, QRadioButton, QButtonGroup,
                              QTableWidget, QProgressBar, QHeaderView, QSlider,
                              QSpacerItem, QSizePolicy)
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QSize
 from PyQt5.QtGui import QIcon
+import os
 
 class View(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Robot Control Interface - STM32")
-        self.resize(1100, 750) 
+        self.setWindowTitle("Technical Articulated Intelligent Linkage System (T.A.I.L.S.)")
         
+        self.resize(1100, 750) 
+        ruta_icono = os.path.join("resources/", "TAILS.ico") 
+        if os.path.exists(ruta_icono):
+            self.setWindowIcon(QIcon(ruta_icono))
+        else:
+            print(f"Advertencia: No se encontró el ícono en {ruta_icono}")
+        
+        # 1. Llamamos a la creación del menú
+        self.setup_menu_bar()
+
         # Widget Central Principal
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -44,8 +54,11 @@ class View(QMainWindow):
         self.btn_toggle_console = QPushButton("Mostrar/Ocultar Terminal de Comandos")
         self.btn_toggle_console.setCheckable(True)
         self.btn_toggle_console.setChecked(True)
+        self.set_btn_icon(self.btn_toggle_console, "showHide.png")
+        self.btn_toggle_console.setFixedHeight(64)
+        self.btn_toggle_console.setToolTip("Consola de comandos") # Ayuda visual
         self.btn_toggle_console.clicked.connect(self.toggle_console)
-        self.btn_toggle_console.setMaximumHeight(20)
+        # self.btn_toggle_console.setMaximumHeight(20)
         
         self.main_layout.addWidget(self.btn_toggle_console)
         self.main_layout.addWidget(self.console_container)
@@ -63,6 +76,36 @@ class View(QMainWindow):
         is_visible = self.btn_toggle_console.isChecked()
         self.console_container.setVisible(is_visible)
 
+    def setup_menu_bar(self):
+        """Crea la barra de menús superior"""
+        menu_bar = self.menuBar()
+        
+        # Menú "Ayuda"
+        help_menu = menu_bar.addMenu("Ayuda")
+        
+        # Acciones dentro del menú
+        self.action_manual = help_menu.addAction("Manual de Usuario")
+        # Opcional: le puedes poner un icono al menú también
+        self.set_btn_icon(self.action_manual, "help.png") 
+        
+        help_menu.addSeparator() # Una línea divisoria
+        self.action_about = help_menu.addAction("Acerca de T.A.I.L.S.")
+        self.set_btn_icon(self.action_about, "TAILS_icono.png")
+
+    # --- FUNCIÓN AUXILIAR PARA ICONOS (Agrégala dentro de la clase View) ---
+    def set_btn_icon(self, item, icon_name, size=64):
+        """Asigna un icono a un botón (QPushButton) o acción (QAction) si existe"""
+        path = os.path.join("resources", icon_name)
+        if os.path.exists(path):
+            item.setIcon(QIcon(path))
+            # Solo cambiamos el tamaño si el objeto es un botón y tiene esta propiedad
+            if hasattr(item, 'setIconSize'):
+                item.setIconSize(QSize(size, size))
+        else:
+            print(f"Advertencia: No se encontró icono {icon_name}")
+
+    # --- APLICANDO ICONOS EN LOS PANELES ---
+
     # ==========================================
     #   1. PANEL IZQUIERDO: ESTADO Y CONEXIÓN
     # ==========================================
@@ -78,13 +121,19 @@ class View(QMainWindow):
         h_lay_ports = QHBoxLayout() 
 
         self.combo_ports = QComboBox()
-        self.btn_refresh = QPushButton("R") # R de Refresh (o usa un icono)
-        self.btn_refresh.setFixedWidth(30)  # Botón pequeño
+        # Botón Refresh
+        self.btn_refresh = QPushButton() # Quitamos la "R" de texto si el icono es claro
+        self.set_btn_icon(self.btn_refresh, "refresh.png")
+        self.btn_refresh.setFixedSize(64, 64)     
+        self.btn_refresh.setToolTip("Refrescar Puertos") # Ayuda visual
 
         h_lay_ports.addWidget(self.combo_ports)
         h_lay_ports.addWidget(self.btn_refresh)
 
         self.btn_connect = QPushButton("Conectar")
+        self.set_btn_icon(self.btn_connect, "plug.png")
+        self.btn_connect.setFixedHeight(64)
+        self.btn_refresh.setToolTip("Conectar/Desconectar Puertos") # Ay
         self.btn_connect.setCheckable(True) 
 
         lay_conn.addWidget(QLabel("Puerto COM:"))
@@ -166,7 +215,9 @@ class View(QMainWindow):
         # E. STOP
         self.btn_estop = QPushButton("STOP EMERGENCIA")
         self.btn_estop.setProperty("class", "stop_button") # Para CSS
-        self.btn_estop.setMinimumHeight(60)
+        self.btn_estop.setMinimumHeight(64)
+        self.set_btn_icon(self.btn_estop, "alert.png") 
+        # self.btn_estop.setIconSize(QSize(32, 32)) # Icono más grande
         layout.addWidget(self.btn_estop)
         
         layout.addStretch() # Empujar todo arriba
@@ -201,7 +252,15 @@ class View(QMainWindow):
         grp_home = QGroupBox("Inicialización")
         lay_home = QHBoxLayout(grp_home)
         self.btn_home = QPushButton("HOME ALL (:-H)")
+        self.set_btn_icon(self.btn_home, "home.png")
+        # self.btn_home.setFixedWidth(50)
+        self.btn_home.setToolTip("Ejecutar comando Home, para inicializar posiciones de referencia.") # Ayuda visual
+
         self.btn_setzero = QPushButton("Set Zero Here (:-Z)")
+        self.set_btn_icon(self.btn_setzero, "zero.png")
+        # self.btn_setzero.setFixedWidth(50)
+        self.btn_setzero.setToolTip("Setear nuevo Zero Home en posición actual.") # Ayuda visual
+
         lay_home.addWidget(self.btn_home)
         lay_home.addWidget(self.btn_setzero)
         layout.addWidget(grp_home)
@@ -212,9 +271,15 @@ class View(QMainWindow):
         
         self.input_angle_open = QLineEdit("90")
         self.btn_set_open = QPushButton("Set Apertura (:-A)")
+        self.set_btn_icon(self.btn_set_open, "open.png")
+        # self.btn_set_open.setFixedWidth(30)
+        self.btn_set_open.setToolTip("Setear apertura de garra.") # Ayuda visual
         
         self.input_angle_close = QLineEdit("0")
         self.btn_set_close = QPushButton("Set Cierre (:-P)")
+        self.set_btn_icon(self.btn_set_close, "close.png")
+        # self.btn_set_close.setFixedWidth(30)
+        self.btn_set_close.setToolTip("Setear cierre de garra.") # Ayuda visual
         
         lay_grip.addWidget(QLabel("Ángulo Abierto:"), 0, 0)
         lay_grip.addWidget(self.input_angle_open, 0, 1)
@@ -241,21 +306,45 @@ class View(QMainWindow):
         grid_jog = QGridLayout(grp_jog)
         
         # Botones Jog
-        self.btn_y_plus = QPushButton("Y+")
-        self.btn_y_minus = QPushButton("Y-")
         self.btn_x_plus = QPushButton("X+")
+        self.set_btn_icon(self.btn_x_plus, "x+.png")
+        self.btn_x_plus.setMinimumHeight(64)
+        self.btn_x_plus.setToolTip("Incrementar posición X.") # Ayuda visual
         self.btn_x_minus = QPushButton("X-")
+        self.set_btn_icon(self.btn_x_minus, "x-.png")
+        self.btn_x_minus.setMinimumHeight(64)
+        self.btn_x_minus.setToolTip("Reducir posición X.") # Ayuda visual
+        self.btn_y_plus = QPushButton("Y+")
+        self.set_btn_icon(self.btn_y_plus, "y+.png")
+        self.btn_y_plus.setMinimumHeight(64)
+        self.btn_y_plus.setToolTip("Incrementar posición X.") # Ayuda visual
+        self.btn_y_minus = QPushButton("Y-")
+        self.set_btn_icon(self.btn_y_minus, "y-.png")
+        self.btn_y_minus.setMinimumHeight(64)
+        self.btn_y_minus.setToolTip("Reducir posición Y.") # Ayuda visual
         
         # NUEVO: Botón Central Hxy (Ir a X0 Y0)
         self.btn_home_xy = QPushButton("Hxy")
+        self.set_btn_icon(self.btn_home_xy, "homexy.png")
+        self.btn_home_xy.setMinimumHeight(64)
+        self.btn_home_xy.setToolTip("Mandar a home los motores X e Y.") # Ayuda visual
         self.btn_home_xy.setStyleSheet("background-color: #00bcd4; color: black; font-weight: bold;")
         
         
         self.btn_z_plus = QPushButton("Z+")
+        self.set_btn_icon(self.btn_z_plus, "z+.png")
+        self.btn_z_plus.setMinimumHeight(64)
+        self.btn_z_plus.setToolTip("Incrementar posición Z.") # Ayuda visual
         self.btn_z_minus = QPushButton("Z-")
+        self.set_btn_icon(self.btn_z_minus, "z-.png")
+        self.btn_z_minus.setMinimumHeight(64)
+        self.btn_z_minus.setToolTip("Reducir posición Z.") # Ayuda visual
         
         # NUEVO: Botón Central Hz (Ir a Z0)
         self.btn_home_z = QPushButton("Hz")
+        self.set_btn_icon(self.btn_home_z, "homez.png")
+        # self.btn_home_z.setMinimumHeight(64)
+        self.btn_home_z.setToolTip("Mandar a home al motor Z.") # Ayuda visual
         self.btn_home_z.setStyleSheet("background-color: #00bcd4; color: black; font-weight: bold;")
 
         # Grilla X/Y
@@ -317,7 +406,13 @@ class View(QMainWindow):
         grp_man_grip = QGroupBox("Garra")
         lay_man_grip = QHBoxLayout(grp_man_grip)
         self.btn_open_grip = QPushButton("Abrir")
+        self.set_btn_icon(self.btn_open_grip, "open.png")
+        # self.btn_open_grip.setFixedWidth(30)
+        self.btn_open_grip.setToolTip("Abrir garra según ángulo seteado.") # Ayuda visual
         self.btn_close_grip = QPushButton("Cerrar")
+        self.set_btn_icon(self.btn_close_grip, "close.png")
+        # self.btn_close_grip.setFixedWidth(30)
+        self.btn_close_grip.setToolTip("Cerrar garra según ángulo seteado.") # Ayuda visual
         lay_man_grip.addWidget(self.btn_open_grip)
         lay_man_grip.addWidget(self.btn_close_grip)
         col_jog.addWidget(grp_man_grip)
@@ -336,17 +431,30 @@ class View(QMainWindow):
         
         lay_btns_list = QHBoxLayout()
         self.btn_add_point = QPushButton("Guardar Punto Actual")
+        self.set_btn_icon(self.btn_add_point, "add.png")
+        # self.btn_add_point.setFixedWidth(30)
+        self.btn_add_point.setToolTip("Agregar punto actual a la lista de posiciones para la rutina.") # Ayuda visual
+
         self.btn_del_point = QPushButton("Borrar Seleccionado")
+        self.set_btn_icon(self.btn_del_point, "clear.png")
+        # self.btn_del_point.setFixedWidth(30)
+        self.btn_del_point.setToolTip("Borrar fila de posición seleccionada.") # Ayuda visual
         
         # --- NUEVO BOTÓN: BORRAR TODO ---
         self.btn_clear_all = QPushButton("Limpiar Todo")
+        self.set_btn_icon(self.btn_clear_all, "clean.png")
+        # self.btn_clear_all.setFixedWidth(30)
+        self.btn_clear_all.setToolTip("Borrar todas las posiciones cargadas en el panel.") # Ayuda visual
         self.btn_clear_all.setStyleSheet("background-color: #d32f2f; font-weight: bold;") # Rojo oscuro
         
         self.btn_save_file = QPushButton("Guardar Rutina JSON")
+        self.set_btn_icon(self.btn_save_file, "save.png")
+        # self.btn_save_file.setFixedWidth(30)
+        self.btn_save_file.setToolTip("Guardar conjunto de posiciones en una rutina con formato JSON.") # Ayuda visual
         
         lay_btns_list.addWidget(self.btn_add_point)
         lay_btns_list.addWidget(self.btn_del_point)
-        lay_btns_list.addWidget(self.btn_clear_all) # <--- Agregarlo al layout
+        lay_btns_list.addWidget(self.btn_clear_all) 
         lay_btns_list.addWidget(self.btn_save_file)
         col_list.addLayout(lay_btns_list)
         
@@ -360,9 +468,15 @@ class View(QMainWindow):
         lay_file = QHBoxLayout()
         self.lbl_file = QLabel("Archivo: Ninguno cargado")
         self.btn_load_file = QPushButton("Cargar Rutina")
+        self.set_btn_icon(self.btn_load_file, "load.png")
+        # self.btn_load_file.setFixedWidth(30)
+        self.btn_load_file.setToolTip("Cargar archivo de rutina en formato JSON.") # Ayuda visual
         
         # --- NUEVO BOTÓN: PREVISUALIZAR ---
         self.btn_preview = QPushButton("Ver Contenido")
+        self.set_btn_icon(self.btn_preview, "read.png")
+        # self.btn_preview.setFixedWidth(30)
+        self.btn_preview.setToolTip("Ver contenido del archivo JSON cargado.") # Ayuda visual
         self.btn_preview.setStyleSheet("background-color: #FF9800; color: black;") # Naranja
         
         lay_file.addWidget(self.lbl_file)
@@ -377,8 +491,17 @@ class View(QMainWindow):
         # Controles
         lay_ctrl = QHBoxLayout()
         self.btn_play = QPushButton("PLAY")
+        self.set_btn_icon(self.btn_play, "play.png")
+        # self.btn_play.setFixedWidth(30)
+        self.btn_play.setToolTip("Ejecutar rutina seleccionada y cargada.") # Ayuda visual
         self.btn_pause = QPushButton("PAUSA")
+        self.set_btn_icon(self.btn_pause, "pause.png")
+        # self.btn_pause.setFixedWidth(30)
+        self.btn_pause.setToolTip("Pausar rutina que se está ejecutando.") # Ayuda visual
         self.btn_stop_run = QPushButton("DETENER")
+        self.set_btn_icon(self.btn_stop_run, "stop.png")
+        # self.btn_stop_run.setFixedWidth(30)
+        self.btn_stop_run.setToolTip("Detener rutina que se ejecuta actualmente.") # Ayuda visual
         
         # Estilos botones play
         self.btn_play.setStyleSheet("background-color: #2e7d32; font-weight: bold;") # Verde
@@ -411,10 +534,17 @@ class View(QMainWindow):
         lay_input = QHBoxLayout()
         self.input_console = QLineEdit()
         self.input_console.setPlaceholderText("Escribe un comando manual (ej: :-H, :#X100)...")
+        self.input_console.setMinimumHeight(64)
         self.btn_send_console = QPushButton("Enviar")
+        self.set_btn_icon(self.btn_send_console, "send.png")
+        self.btn_send_console.setMinimumHeight(64)
+        self.btn_send_console.setToolTip("Enviar comando ingresado a la consola.") # Ayuda visual
         self.btn_clear_console = QPushButton("Limpiar")
+        self.set_btn_icon(self.btn_clear_console, "erase.png")
+        self.btn_clear_console.setMinimumHeight(164)
+        self.btn_clear_console.setToolTip("Limpiar la consola de comandos.") # Ayuda visual
         
-        lay_input.addWidget(QLabel(">"))
+        lay_input.addWidget(QLabel(">_"))
         lay_input.addWidget(self.input_console)
         lay_input.addWidget(self.btn_send_console)
         lay_input.addWidget(self.btn_clear_console)

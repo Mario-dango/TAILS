@@ -3,14 +3,19 @@ from PyQt5.QtWidgets import QMessageBox, QTableWidgetItem, QFileDialog # <--- Ag
 from view import View
 from model import Model
 import time
+import os
 
 # --- Hilo Trabajador Serial (Sin cambios) ---
+# --- Hilo Trabajador Serial ---
 class SerialWorker(QThread):
     data_received = pyqtSignal(str) 
+    
     def __init__(self, serial_port):
         super().__init__()
         self.serial_port = serial_port
         self.is_running = True
+        # ¡Y ya está! Nada de carpetas ni timers aquí.
+
     def run(self):
         while self.is_running and self.serial_port and self.serial_port.is_open:
             try:
@@ -19,6 +24,7 @@ class SerialWorker(QThread):
                     if line: self.data_received.emit(line)
             except: break
             time.sleep(0.01)
+            
     def stop(self):
         self.is_running = False
         self.quit()
@@ -36,6 +42,17 @@ class Controller:
         self.is_executing = False
         self.run_timer = QTimer()
         self.run_timer.timeout.connect(self.execute_next_step)
+
+        # --- GESTIÓN DE RUTAS (AHORA SÍ ESTÁ EN EL CONTROLADOR) ---
+        base_path = os.getcwd()
+        self.routines_path = os.path.join(base_path, "rutinas")
+        
+        if not os.path.exists(self.routines_path):
+            try:
+                os.makedirs(self.routines_path)
+            except OSError as e:
+                print(f"Error creando carpeta rutinas: {e}")
+        # -----------------------------------------------------------
 
         # --- ESTADO INTERNO DEL ROBOT (Shadow Registers) ---
         # Asumimos que al conectar o hacer Home estamos en 0,0,0
@@ -116,6 +133,10 @@ class Controller:
         self.view.btn_pause.clicked.connect(self.pause_execution)
         # Nuevo: Previsualizar ejecución
         self.view.btn_preview.clicked.connect(self.preview_loaded_routine)
+
+        # Conectar el menú de ayuda
+        self.view.action_manual.triggered.connect(self.show_manual)
+        self.view.action_about.triggered.connect(self.show_about)
 
     def update_ui_connection_state(self, is_connected):
         """Bloquea o desbloquea los controles según el estado del hardware."""
@@ -279,10 +300,11 @@ class Controller:
             
         # ABRIR DIÁLOGO DE SISTEMA
         options = QFileDialog.Options()
+        # CAMBIO AQUÍ: El tercer argumento ahora es self.routines_path
         file_path, _ = QFileDialog.getSaveFileName(
             self.view, 
             "Guardar Rutina", 
-            "", 
+            self.routines_path,  # <--- Antes era ""
             "Archivos JSON (*.json);;Todos (*)", 
             options=options
         )
@@ -668,3 +690,24 @@ class Controller:
         else:
             self.view.lbl_status_home.setStyleSheet("background-color: #333; color: #555; border-radius: 4px; border: 1px solid #444;")
             self.view.lbl_status_home.setText("HOME")
+    
+    # --- NUEVAS FUNCIONES DE AYUDA ---
+    def show_manual(self):
+        # Un cuadro de diálogo informativo con las instrucciones
+        instrucciones = (
+            "<b>Guía rápida de T.A.I.L.S.</b><br><br>"
+            "<b>1. Calibración:</b> Asegúrate de hacer 'Home' antes de mover el robot.<br>"
+            "<b>2. Aprendizaje:</b> Usa las flechas para mover el brazo. Haz clic en 'Guardar Punto' para crear una secuencia.<br>"
+            "<b>3. Ejecución:</b> Carga tu rutina guardada y presiona Play.<br><br>"
+            "<i>Nota: Si el indicador de sistema dice 'REQ. HOMING', ve a la pestaña de Calibración.</i>"
+        )
+        QMessageBox.information(self.view, "Manual de Usuario", instrucciones)
+
+    def show_about(self):
+        about_text = (
+            "<h2>T.A.I.L.S.</h2>"
+            "<p><b>Technical Articulated Intelligent Linkage System</b></p>"
+            "<p>Interfaz de control robótico.</p>"
+            "<p>Versión 1.0</p>"
+        )
+        QMessageBox.about(self.view, "Acerca de", about_text)
