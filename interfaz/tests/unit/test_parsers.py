@@ -7,9 +7,15 @@ from controller.connection_manager import ConnectionManager
 
 @pytest.fixture
 def mock_app():
-    """Crea un controlador falso (Mock) para aislar el ConnectionManager"""
+    """
+    Fixture: Crea un 'MainController' falso (Mock).
+    En pruebas unitarias estrictas, no queremos abrir ventanas gráficas.
+    Usamos MagicMock para crear objetos vacíos que el ConnectionManager pueda 
+    modificar sin que Python tire error de 'objeto no encontrado'.
+    """
     app_mock = MagicMock()
-    # Simulamos que la View y sus elementos existen
+    
+    # Fingimos que todos estos componentes de la interfaz existen
     app_mock.view.lcd_x = MagicMock()
     app_mock.view.lcd_y = MagicMock()
     app_mock.view.lcd_z = MagicMock()
@@ -20,41 +26,52 @@ def mock_app():
     app_mock.view.led_z = MagicMock()
     app_mock.view.btn_home = MagicMock()
     
-    # Datos globales iniciales
+    # Creamos la memoria global inicial
     app_mock.current_pos = {'x': 0, 'y': 0, 'z': 0}
+    
     return app_mock
 
 def test_process_valid_status_string(mock_app):
     """
-    CP-01: Verificar que una trama STATUS estándar actualice la memoria global
+    Verifica que si el STM32 manda una trama válida, el parser separe bien
+    los números y mande a actualizar la pantalla.
     """
-    # Instanciamos el manager pasándole el jefe falso
+    # 1. PREPARACIÓN: Instanciamos el manager entregándole nuestro jefe falso
     manager = ConnectionManager(mock_app)
     
-    # Trama simulada que llegaría del STM32
-    # X=150, Y=20, Z=10, Sensores=000, Calibrado=1, Moviendo=0
+    # Simulamos el String exacto que escupiría el cable USB
     trama = "STATUS|X:150|Y:20|Z:10|S:000|C:1|M:0"
     
-    # Ejecutamos la función a probar
+    # 2. ACCIÓN: Forzamos al manager a procesar este string
     manager.process_serial_data(trama)
     
-    # Verificaciones (Asserts)
-    # 1. ¿Se actualizó la memoria global del jefe?
-    assert mock_app.current_pos['x'] == 150
-    assert mock_app.current_pos['y'] == 20
-    assert mock_app.current_pos['z'] == 10
+    # 3. VERIFICACIÓN
+    # Comprobamos que el parser haya extraído el 150, 20 y 10 y los haya guardado
+    assert mock_app.current_pos['x'] == 150, "El parser falló en extraer la X."
+    assert mock_app.current_pos['y'] == 20, "El parser falló en extraer la Y."
+    assert mock_app.current_pos['z'] == 10, "El parser falló en extraer la Z."
     
-    # 2. ¿Se mandó a actualizar el LCD visual?
+    # Comprobamos que el manager le haya dado la orden a la pantalla (LCD) de mostrar el 150.
+    # assert_called_with es una magia de MagicMock para saber si una función fue invocada.
     mock_app.view.lcd_x.display.assert_called_with(150)
 
 def test_process_corrupted_string(mock_app):
     """
-    CP-02: Verificar que si llega basura, el programa no crashee
+    Prueba de Resiliencia: Si el cable hace falso contacto y llega basura,
+    el software debe ignorarla, no cerrarse inesperadamente (Crash).
     """
+    # 1. Preparación
     manager = ConnectionManager(mock_app)
-    trama_basura = "ASDF|X:??|@#$%" # Trama corrupta
     
+    # Un string que no cumple el formato esperado
+    trama_basura = "ASDF|X:??|@#$%" 
+    
+    # 2. Acción y Verificación combinadas
     try:
+        # Si el bloque try/except dentro de process_serial_data funciona bien,
+        # esto no debería hacer nada.
         manager.process_serial_data(trama_basura)
     except Exception:
-        pytest.fail("El parser no debería lanzar excepción con tramas corruptas")
+        # Si llega hasta aquí, significa que la excepción "rompió" el método
+        # y llegó hasta la prueba, por lo que fallamos el test manualmente.
+        pytest.fail("El parser no manejó correctamente la trama corrupta y lanzó una excepción.")
