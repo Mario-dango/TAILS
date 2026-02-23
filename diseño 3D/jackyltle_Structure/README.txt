@@ -1,0 +1,4 @@
+Robot Arm MK2 Plus (Stepper Motor in Used) by jackyltle on Thingiverse: https://www.thingiverse.com/thing:2520572
+
+Summary:
+This concept of Robot Arm base on MK2 design. Just upgrade to use stepper motor.InstructionStep1: print all 3d file (follow instruction: https://www.instructables.com/id/Robot-Arm-MK2-Plus-Stepper-Motor-Used/)Step2: Use Arduino with grbl drive (Follow bellow video)Step3: Use bCNC for controlling.Note: Detail SW installation &amp; flashing you can check on description of video.Link for grbl: https://github.com/grbl/grbl/downloadsLink for bCNC: https://github.com/vlachoudis/bCNC

@@ -59,17 +59,17 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 #define LedPcb_Pin GPIO_PIN_13
 #define LedPcb_GPIO_Port GPIOC
-#define StepM_X_Pin GPIO_PIN_0
+#define StepM_X_Pin GPIO_PIN_2
 #define StepM_X_GPIO_Port GPIOA
 #define StepM_Y_Pin GPIO_PIN_1
 #define StepM_Y_GPIO_Port GPIOA
-#define StepM_Z_Pin GPIO_PIN_2
+#define StepM_Z_Pin GPIO_PIN_0
 #define StepM_Z_GPIO_Port GPIOA
-#define DirM_X_Pin GPIO_PIN_3
+#define DirM_X_Pin GPIO_PIN_5
 #define DirM_X_GPIO_Port GPIOA
 #define DirM_Y_Pin GPIO_PIN_4
 #define DirM_Y_GPIO_Port GPIOA
-#define DirM_Z_Pin GPIO_PIN_5
+#define DirM_Z_Pin GPIO_PIN_3
 #define DirM_Z_GPIO_Port GPIOA
 #define StopM_X_Pin GPIO_PIN_12
 #define StopM_X_GPIO_Port GPIOB

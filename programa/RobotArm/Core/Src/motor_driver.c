@@ -16,12 +16,23 @@ volatile uint8_t flagStopM_X = 0;
 volatile uint8_t flagStopM_Y = 0;
 volatile uint8_t flagStopM_Z = 0;
 
+// Variable Global de Estado
+volatile uint8_t robotState = STATE_IDLE;
+
 // Configuración por defecto de rampas (Ajustable)
 #define DEFAULT_MIN_VEL  50   // 50 Hz de arranque (evita resonancia baja)
 #define DEFAULT_ACCEL    5    // Aumentar 5 Hz por cada paso dado
 
+// --- CONFIGURACIÓN DE HOMING ---
+#define SPEED_STD       60  // Hz para Y y X (1.8°)
+#define SPEED_FAST      30  // Hz para Z (3.75°)
+#define TIMEOUT_SEC     10  // Tiempo máximo por eje
+
 // --- Funciones Privadas ---
+// --- PROTOTIPOS DE FUNCIONES PRIVADAS ---
 void CalculateSpeed(StepperMotor *motor);
+static int RunHomingSequence(int motorIndex, int velocity, int direction);
+uint8_t IsSensorPressed(int motorIndex);
 
 // Inicializa valores por defecto para evitar basura en memoria
 void Motor_Init(void) {
@@ -146,130 +157,259 @@ void CalculateSpeed(StepperMotor *m) {
     else m->stepInterval = TIMER_FREQUENCY / m->velocity;
 }
 
-// Rutina de Homing (Modificada para usar velocidad constante y segura)
+// Función auxiliar privada para mover un solo eje hasta el sensor
+// Retorna: 0 si Éxito, -1 si Timeout
+/* Core/Src/motor_driver.c */
+
+static int RunHomingSequence(int motorIndex, int velocity, int direction) {
+
+    // --- PASO 0: VERIFICACIÓN PREVIA (SMART HOMING) ---
+    // ¿El sensor YA está presionado antes de empezar?
+    if (IsSensorPressed(motorIndex)) {
+
+        // ESTRATEGIA: Retroceder hasta liberar el sensor
+        motors[motorIndex].velocity = velocity;
+        motors[motorIndex].stepInterval = TIMER_FREQUENCY / velocity;
+
+        // Invertimos la dirección para SALIR del sensor
+        int dirSalida = (direction == DIR_TOWARDS_HOME) ? DIR_AWAY_HOME : DIR_TOWARDS_HOME;
+        motors[motorIndex].direction = dirSalida;
+
+        // Aplicar cambio físico de pin DIR
+        GPIO_PinState pinState = (dirSalida == 0) ? GPIO_PIN_SET : GPIO_PIN_RESET;
+        HAL_GPIO_WritePin(motors[motorIndex].dirPort, motors[motorIndex].dirPin, pinState);
+
+        motors[motorIndex].stopFlag = 0; // Moverse
+
+        // Esperar hasta que el sensor SE SUELTE (deje de estar presionado)
+        contSeconds = 0;
+        while (IsSensorPressed(motorIndex) && contSeconds < 5); // Timeout corto de seguridad
+
+        // Unos pasitos extra para asegurar despeje
+        HAL_Delay(500);
+        motors[motorIndex].stopFlag = 1; // Frenar
+
+        // Si después de intentar salir sigue presionado, hay error de hardware
+        if (IsSensorPressed(motorIndex)) return -5;
+    }
+
+    // --- PASO 1: BÚSQUEDA NORMAL DE HOME ---
+    // (Ahora seguro porque sabemos que no estamos tocando el sensor)
+
+    motors[motorIndex].velocity = velocity;
+    motors[motorIndex].stepInterval = TIMER_FREQUENCY / velocity;
+    motors[motorIndex].direction = direction; // Dirección Hacia Home
+
+    GPIO_PinState pinState = (direction == 0) ? GPIO_PIN_SET : GPIO_PIN_RESET;
+    HAL_GPIO_WritePin(motors[motorIndex].dirPort, motors[motorIndex].dirPin, pinState);
+
+    motors[motorIndex].stopFlag = 0; // START
+
+    // Resetear flags de interrupción por si quedaron sucios
+    if (motorIndex == 0) flagStopM_X = 0;
+    else if (motorIndex == 1) flagStopM_Y = 0;
+    else flagStopM_Z = 0;
+
+    // Esperar a que el sensor se active (Flag ISR o lectura directa)
+    contSeconds = 0;
+    // Usamos lectura directa también por seguridad redundante
+    while (!IsSensorPressed(motorIndex) && (contSeconds < TIMEOUT_SEC));
+
+    motors[motorIndex].stopFlag = 1; // STOP
+
+    if (!IsSensorPressed(motorIndex)) return -1; // Falló por Timeout
+    return 0; // Éxito
+}
+
+
+// --- RUTINA PRINCIPAL DE HOMING (Y -> Z -> X) ---
 int HomingMotors(uint8_t* hmX, uint8_t* hmY, uint8_t* hmZ) {
-    ActivatedAll(1);
+    ActivatedAll(1); // Enable Drivers
     Gripper_Open();
     HAL_Delay(500);
 
+    // Reset Flags
     flagStopM_X = 0; flagStopM_Y = 0; flagStopM_Z = 0;
     *hmX = 0; *hmY = 0; *hmZ = 0;
 
-    // Configuración para Homing: Sin rampas, velocidad fija y baja
-    int homingSpeed = 50; // Hz
+    // 1. HOMING Y (Hombro/Verde) - Levantar primero
+    if (RunHomingSequence(1, SPEED_STD, DIR_TOWARDS_HOME) != 0) return -2;
+    *hmY = 1;
+    HAL_Delay(200);
+
+    // 2. HOMING Z (Codo/Lila) - Recoger brazo
+    if (RunHomingSequence(2, SPEED_FAST, DIR_TOWARDS_HOME) != 0) return -3;
+    *hmZ = 1;
+    HAL_Delay(200);
+
+    // 3. HOMING X (Base/Rojo) - Centrar giro
+    if (RunHomingSequence(0, SPEED_STD, DIR_TOWARDS_HOME) != 0) return -1;
+    *hmX = 1;
+    HAL_Delay(200);
+
+    // 4. RETROCESO DE SEGURIDAD (BACK-OFF) SIMULTÁNEO
+    // Configuramos los 3 para moverse hacia afuera
+    int backoff_steps = HOMING_BACKOFF_STEPS;
 
     for (int i = 0; i < NUM_MOTORS; i++) {
-        motors[i].minVelocity = homingSpeed;
-        motors[i].targetVelocity = homingSpeed; // Target = Min para que no acelere
-        motors[i].velocity = homingSpeed;
-        motors[i].accelRate = 0; // Desactivar aceleración para homing
+        motors[i].direction = DIR_AWAY_HOME;
+        motors[i].currentPosition = 0;
+        motors[i].stopFlag = 0; // START
 
-        motors[i].stepInterval = TIMER_FREQUENCY / homingSpeed;
-        motors[i].direction = 1;
-        motors[i].stopFlag = 1;
-    }
-
-    // --- SECUENCIA EJE X ---
-    motors[0].stopFlag = 0;
-    contSeconds = 0;
-    while ((*hmX == 0) && (contSeconds < 15)) {
-        if (flagStopM_X == 1) {
-            *hmX = 1; motors[0].stopFlag = 1;
+        // Ajuste especial para Z (3.75°) -> Mitad de pasos
+        if (i == 2) {
+            motors[i].newPosition = backoff_steps / 2;
+            motors[i].velocity = SPEED_FAST;
+        } else {
+            motors[i].newPosition = backoff_steps;
+            motors[i].velocity = SPEED_STD;
         }
+        motors[i].stepInterval = TIMER_FREQUENCY / motors[i].velocity;
     }
-    motors[0].stopFlag = 1;
 
-    // --- SECUENCIA EJE Y ---
-    motors[1].stopFlag = 0;
-    contSeconds = 0;
-    while ((*hmY == 0) && (contSeconds < 15)) {
-        if (flagStopM_Y == 1) {
-            *hmY = 1; motors[1].stopFlag = 1;
-        }
-    }
-    motors[1].stopFlag = 1;
+    // Esperar a que todos terminen el retroceso
+    while(motors[0].currentPosition < motors[0].newPosition ||
+          motors[1].currentPosition < motors[1].newPosition ||
+          motors[2].currentPosition < motors[2].newPosition);
 
-    // --- SECUENCIA EJE Z ---
-    motors[2].stopFlag = 0;
-    contSeconds = 0;
-    while ((*hmZ == 0) && (contSeconds < 15)) {
-        if (flagStopM_Z == 1) {
-            *hmZ = 1; motors[2].stopFlag = 1;
-        }
-    }
-    motors[2].stopFlag = 1;
+    // 5. RESTAURACIÓN FINAL Y RESET DE HARDWARE
+    flagStopM_X = 0; flagStopM_Y = 0; flagStopM_Z = 0;
 
-    // Restaurar valores normales post-homing
     for (int i = 0; i < NUM_MOTORS; i++) {
+        // Dirección segura (Hacia afuera)
+        motors[i].direction = DIR_AWAY_HOME;
+
+        // Sincronismo físico del pin DIR
+        GPIO_PinState pinState = (motors[i].direction == 0) ? GPIO_PIN_SET : GPIO_PIN_RESET;
+        HAL_GPIO_WritePin(motors[i].dirPort, motors[i].dirPin, pinState);
+
+        // Reset Variables Lógicas
         motors[i].velocity = 0;
         motors[i].stepInterval = 0;
-        motors[i].currentPosition = 0;
-        motors[i].stopFlag = 0;
-        motors[i].accelRate = DEFAULT_ACCEL; // Restaurar aceleración
+        motors[i].currentPosition = 0; // CERO REAL
+        motors[i].newPosition = 0;
+        motors[i].stopFlag = 1;        // STOP
+
+        // Restaurar aceleración normal
+        motors[i].accelRate = DEFAULT_ACCEL;
         motors[i].minVelocity = DEFAULT_MIN_VEL;
     }
 
-    if ((*hmX == 1 )&&(*hmY == 1 )&&(*hmZ == 1 )) return 0;
-    if (*hmX == 0) return -1;
-    if (*hmY == 0) return -2;
-    if (*hmZ == 0) return -3;
-
-    return 1;
+    return 0; // Homing Exitoso
 }
 
 // --- INTERRUPCIÓN DEL TIMER (Generación de Pulsos) ---
 void Motor_Timer_Callback(void) {
+
+    // [PRIORIDAD MÁXIMA] E-STOP CHECK
+    // Si estamos en emergencia, abortamos INSTANTÁNEAMENTE.
+    // No hay "ifs", no hay "peros", no hay rampas de frenado. Se corta la señal.
+    if (robotState == STATE_ESTOP) {
+        return;
+    }
+
     for (int i = 0; i < NUM_MOTORS; i++) {
         StepperMotor *motor = &motors[i];
 
+        // [PRIORIDAD ALTA] HARD LIMITS (Fines de Carrera en Tiempo Real)
+        // Verificamos si estamos pisando el sensor Y queriendo avanzar contra él.
+        if (IsSensorPressed(i) && motor->direction == DIR_TOWARDS_HOME) {
+             // Forzamos apagado de este motor específico
+             motor->stepInterval = 0;
+             motor->velocity = 0;
+             motor->stopFlag = 1;
+             continue; // Saltamos al siguiente motor, este no se mueve.
+        }
+
+        // --- GENERACIÓN NORMAL DE PASOS ---
         if (motor->stopFlag == 0 && motor->stepInterval > 0) {
             motor->stepCounter++;
 
-            // Generar Pulso STEP (High)
+            // Generar Flanco de Subida (STEP HIGH)
             if (motor->stepCounter >= motor->stepInterval) {
                 HAL_GPIO_WritePin(motor->dirPort, motor->dirPin, (motor->direction == 0) ? GPIO_PIN_SET : GPIO_PIN_RESET);
                 HAL_GPIO_WritePin(motor->stepPort, motor->stepPin, GPIO_PIN_SET);
             }
 
-            // Terminar Pulso STEP (Low) y Contabilizar Paso
+            // Generar Flanco de Bajada (STEP LOW)
             if (motor->stepCounter >= (motor->stepInterval + 1)) {
                 HAL_GPIO_WritePin(motor->stepPort, motor->stepPin, GPIO_PIN_RESET);
                 motor->stepCounter = 0;
 
-                // Actualizar Posición
+                // Actualizar Posición Lógica
                 if (motor->direction == 0) motor->currentPosition++;
                 else motor->currentPosition--;
 
-                // --- AQUÍ OCURRE LA MAGIA DE LA RAMPA ---
-                // Recalculamos la velocidad para el SIGUIENTE paso
-                CalculateSpeed(motor);
+                CalculateSpeed(motor); // Recalcular rampa
             }
         }
     }
 }
 
-// Lógica de sensores (Lo que antes estaba en HAL_GPIO_EXTI_Callback)
+// Esta función es llamada DIRECTAMENTE desde la interrupción EXTI (Prioridad 0)
 void Motor_Sensor_Triggered(uint16_t GPIO_Pin) {
-    if (GPIO_Pin == STOP_btn_Pin){
-        ActivatedAll(-1); // Parada emergencia
+
+    // ============================================================
+    // CASO 1: PARADA DE EMERGENCIA (¡PRIORIDAD ABSOLUTA!)
+    // ============================================================
+    if (GPIO_Pin == STOP_btn_Pin) {
+
+        // 1. DESHABILITAR DRIVERS FÍSICAMENTE (OPCIONAL)
+        // Si pones el pin ENABLE en alto, el motor pierde torque inmediatamente.
+        // Útil si quieres que el robot "se suelte".
+        // Si prefieres que frene y mantenga posición, comenta esta línea.
+        // HAL_GPIO_WritePin(EnableMotors_GPIO_Port, EnableMotors_Pin, GPIO_PIN_SET);
+
+        // 2. MATAR LA GENERACIÓN DE PASOS (CRÍTICO)
+        // Recorremos todos los motores y ponemos sus intervalos a 0.
+        // Esto asegura que la próxima interrupción del TIM2 (50us después) NO haga nada.
+        for (int i = 0; i < NUM_MOTORS; i++) {
+            motors[i].velocity = 0;
+            motors[i].targetVelocity = 0;
+            motors[i].stepInterval = 0; // <--- ESTO ES EL FRENO DE MANO
+            motors[i].stopFlag = 1;
+        }
+
+        // 3. CAMBIAR ESTADO GLOBAL
+        // Para que el main loop y el USB sepan que pasó algo grave.
+        robotState = STATE_ESTOP;
+
+        // 4. FEEDBACK VISUAL INMEDIATO (Debugging)
+        // Encendemos un LED directamente aquí para saber que la ISR entró.
+        // HAL_GPIO_WritePin(Wait_led_GPIO_Port, Wait_led_Pin, GPIO_PIN_SET);
     }
-    // Finales de carrera: Detener motor y marcar bandera
-    // Nota: Aquí podrías actualizar directamente los punteros hmX/Y/Z si los tuvieras globales,
-    // o usar las variables estáticas flagStopM_X.
-    else if (GPIO_Pin == StopM_X_Pin) {
-        motors[0].stopFlag = 1;
-        motors[0].velocity = 0; // Parada seca al tocar sensor
-        flagStopM_X = 1; // Usado por la lógica de Homing
-    }
-    else if (GPIO_Pin == StopM_Y_Pin) {
-        motors[1].stopFlag = 1;
-        motors[1].velocity = 0; // Parada seca al tocar sensor
-        flagStopM_Y = 1;
-    }
-    else if (GPIO_Pin == StopM_Z_Pin) {
-        motors[2].stopFlag = 1;
-        motors[2].velocity = 0; // Parada seca al tocar sensor
-        flagStopM_Z = 1;
+
+    // ============================================================
+    // CASO 2: FINAL DE CARRERA (X, Y, Z)
+    // ============================================================
+    // Solo detenemos el motor específico que tocó su sensor.
+    else {
+        StepperMotor *motorAfectado = NULL;
+        volatile uint8_t *flagGlobal = NULL;
+
+        if (GPIO_Pin == StopM_X_Pin) {
+            motorAfectado = &motors[0];
+            flagGlobal = &flagStopM_X;
+        }
+        else if (GPIO_Pin == StopM_Y_Pin) {
+            motorAfectado = &motors[1];
+            flagGlobal = &flagStopM_Y;
+        }
+        else if (GPIO_Pin == StopM_Z_Pin) {
+            motorAfectado = &motors[2];
+            flagGlobal = &flagStopM_Z;
+        }
+
+        if (motorAfectado != NULL) {
+            // A. Detener motor INMEDIATAMENTE dentro de la interrupción
+            motorAfectado->velocity = 0;
+            motorAfectado->targetVelocity = 0;
+            motorAfectado->stepInterval = 0; // <--- Freno instantáneo
+            motorAfectado->stopFlag = 1;
+
+            // B. Marcar bandera para lógica de Homing
+            if (flagGlobal != NULL) *flagGlobal = 1;
+        }
     }
 }
 
@@ -283,6 +423,14 @@ int targetComplete(StepperMotor *motor){
     return (target == NUM_MOTORS) ? 1 : 0;
 }
 
+// Asume que tus sensores dan 0 (RESET) cuando están presionados (Pull-Up)
+// Si es al revés, cambia GPIO_PIN_RESET por GPIO_PIN_SET
+uint8_t IsSensorPressed(int motorIndex) {
+    if (motorIndex == 0) return (HAL_GPIO_ReadPin(StopM_X_GPIO_Port, StopM_X_Pin) == GPIO_PIN_RESET);
+    if (motorIndex == 1) return (HAL_GPIO_ReadPin(StopM_Y_GPIO_Port, StopM_Y_Pin) == GPIO_PIN_RESET);
+    if (motorIndex == 2) return (HAL_GPIO_ReadPin(StopM_Z_GPIO_Port, StopM_Z_Pin) == GPIO_PIN_RESET);
+    return 0;
+}
 
 float deg2rad(float degrees) {
     return degrees * (M_PI / 180.0);

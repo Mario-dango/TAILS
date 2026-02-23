@@ -62,6 +62,9 @@ int contSeconds = 0;
 // pero si necesitas mostrarla en LCD, puedes usar una variable local o getters.
 extern uint8_t estadoGarra; // Traída del driver si la definiste global allá, o úsala local.
 
+// Asegúrate de tener acceso a la variable global
+extern volatile uint8_t robotState;
+
 // 0: Muestra "???", 1: Muestra coordenadas "000"
 uint8_t robotCalibrated = 0;
 extern uint8_t estadoGarra; // Traída de gripper_driver.c
@@ -263,14 +266,30 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 // - motor_driver.c
 // - robot_logic.c
 // - gripper_driver.c
-
 void Actualizar_LCD(void) {
     static uint32_t lcd_timer = 0;
 
-    // Refrescamos el LCD cada 300ms para no saturar el I2C ni parpadear
+    // Refrescamos cada 300ms
     if (HAL_GetTick() - lcd_timer > 300) {
         lcd_timer = HAL_GetTick();
-        Lcd_Clear();
+        Lcd_Clear(); // Limpiamos todo
+        // ============================================================
+        // PRIORIDAD 1: PANTALLA DE EMERGENCIA
+        // ============================================================
+        if (robotState == STATE_ESTOP) {
+            // Mensaje parpadeante o fijo de ALERTA
+            Lcd_Set_Cursor(1,1);
+            Lcd_Send_String("!! E-STOP !!"); // Renglón 1
+
+            Lcd_Set_Cursor(2,1);
+            Lcd_Send_String("Send :-R to Fix"); // Renglón 2: Instrucción clara
+
+            // Feedback visual extra: Parpadear el LED de la placa
+            HAL_GPIO_TogglePin(Wait_led_GPIO_Port, Wait_led_Pin);
+
+            return; // Salimos. No mostramos coordenadas ni nada más.
+        }
+
         // Renglón 1: Fijo
         Lcd_Set_Cursor(1,1);
         Lcd_Send_String("Estado Global");
