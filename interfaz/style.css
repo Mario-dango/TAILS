@@ -1,90 +1,122 @@
-/* --- ESTILO GENERAL --- */
+/* ==========================================================================
+   HOJA DE ESTILOS PRINCIPAL (T.A.I.L.S. DARK THEME)
+   Define la apariencia visual de toda la aplicación PyQt5.
+   ========================================================================== */
+
+/* --- ESTILO GENERAL --- 
+   Aplica al fondo de la ventana principal y a todos los widgets por defecto. */
 QMainWindow, QWidget {
-    background-color: #2b2b2b;
-    color: #e0e0e0;
-    font-family: 'Segoe UI', Arial, sans-serif;
-    font-size: 13px;
+    background-color: #2b2b2b;        /* Gris muy oscuro (Fondo principal) */
+    color: #e0e0e0;                   /* Blanco humo (Texto general) */
+    font-family: 'Segoe UI', Arial, sans-serif; /* Tipografía moderna */
+    font-size: 13px;                  /* Tamaño de letra base cómodo */
 }
 
-/* --- PANELES Y AGRUPADORES --- */
+/* --- PANELES Y AGRUPADORES (QGroupBox) --- 
+   Son los recuadros con título (ej: "Conexión", "Posición Actual"). */
 QGroupBox {
-    border: 1px solid #4d4d4d;
-    border-radius: 5px;
-    margin-top: 20px;
-    font-weight: bold;
-    color: #00aaff; /* Título en Azul Claro */
-}
-QGroupBox::title {
-    subcontrol-origin: margin;
-    left: 10px;
-    padding: 0 3px;
+    border: 1px solid #4d4d4d;        /* Borde gris sutil */
+    border-radius: 5px;               /* Esquinas ligeramente redondeadas */
+    margin-top: 20px;                 /* Espacio superior para que el título no choque */
+    font-weight: bold;                /* Título en negrita */
+    color: #00aaff;                   /* Título en Azul Cyan brillante */
 }
 
-/* --- PESTAÑAS (TAB WIDGET) - CORRECCIÓN DE CONTRASTE --- */
-QTabWidget::pane {
-    border: 1px solid #444;
-    background: #2b2b2b;
+/* Ajuste específico para el texto del título del GroupBox */
+QGroupBox::title {
+    subcontrol-origin: margin;        /* Posiciona el título sobre el borde superior */
+    left: 10px;                       /* Sangría izquierda */
+    padding: 0 3px;                   /* Pequeño respiro alrededor del texto */
 }
+
+/* --- PESTAÑAS (QTabWidget) - BARRA DE NAVEGACIÓN --- 
+   Controla la apariencia de las pestañas "Calibración", "Aprendizaje", "Ejecución". */
+
+/* El contenedor del contenido de la pestaña (el panel grande debajo de las solapas) */
+QTabWidget::pane {
+    border: 1px solid #444;           /* Borde que rodea todo el contenido */
+    background: #2b2b2b;              /* Mismo color de fondo que la ventana */
+}
+
+/* Estilo de la pestaña NO seleccionada (Estado inactivo) */
 QTabBar::tab {
-    background: #1e1e1e; /* Fondo oscuro por defecto */
-    color: #aaaaaa;       /* Texto gris claro */
-    border: 1px solid #444;
-    padding: 8px 25px;
+    background: #1e1e1e;              /* Fondo más oscuro para dar profundidad */
+    color: #aaaaaa;                   /* Texto gris apagado */
+    border: 1px solid #444;           /* Borde sutil */
+    
+    /* CRÍTICO: Espaciado interno y ancho mínimo para evitar que el texto se corte 
+       cuando se pone en negrita al seleccionarlo. */
+    padding: 8px 25px; 
     min-width: 120px;
-    margin-right: 2px;
-    border-top-left-radius: 4px;
+    
+    margin-right: 2px;                /* Separación entre pestañas */
+    border-top-left-radius: 4px;      /* Suavizado superior */
     border-top-right-radius: 4px;
 }
+
+/* Estilo de la pestaña SELECCIONADA (Activa) */
 QTabBar::tab:selected {
-    background: #3a3a3a;  /* Fondo un poco más claro al seleccionar */
-    color: #00aaff;       /* Texto azul brillante */
-    border-bottom-color: #3a3a3a;
-    font-weight: bold;
+    background: #3a3a3a;              /* Fondo ligeramente más claro para resaltar */
+    color: #00aaff;                   /* Texto Cyan brillante para indicar foco */
+    border-bottom-color: #3a3a3a;     /* Truco visual: borra el borde inferior para unirla al panel */
+    font-weight: bold;                /* Texto grueso (causa que se ensanche) */
 }
+
+/* Efecto al pasar el mouse por encima (Hover) */
 QTabBar::tab:hover {
-    background: #333;
-    color: #ffffff;
+    background: #333;                 /* Aclarado sutil */
+    color: #ffffff;                   /* Texto blanco puro */
 }
 
-/* --- BOTONES --- */
+/* --- BOTONES (QPushButton) --- 
+   Estilo base para todos los botones de la interfaz. */
 QPushButton {
-    background-color: #3a3a3a;
-    border: 1px solid #555;
-    border-radius: 4px;
-    padding: 6px;
-    color: #e0e0e0;
-    min-height: 25px;
+    background-color: #3a3a3a;        /* Gris medio */
+    border: 1px solid #555;           /* Borde definido */
+    border-radius: 4px;               /* Bordes suaves */
+    padding: 6px;                     /* Espacio interno */
+    color: #e0e0e0;                   /* Texto claro */
+    min-height: 25px;                 /* Altura mínima garantizada */
 }
+
+/* Estado Hover (Mouse encima) */
 QPushButton:hover {
-    background-color: #444;
-    border-color: #00aaff;
+    background-color: #444;           /* Más claro */
+    border-color: #00aaff;            /* Borde se ilumina en azul */
 }
+
+/* Estado Pressed (Clic mantenido) */
 QPushButton:pressed {
-    background-color: #222;
-    border-color: #005577;
+    background-color: #222;           /* Se oscurece para simular hundimiento */
+    border-color: #005577;            /* Borde azul oscuro */
 }
 
-/* --- BOTÓN STOP --- */
+/* --- BOTÓN STOP DE EMERGENCIA (Estilo especial) --- 
+   Se aplica solo al botón que tenga la propiedad setProperty("class", "stop_button") */
 QPushButton[class="stop_button"] {
-    background-color: #b71c1c;
-    color: white;
+    background-color: #b71c1c;        /* Rojo Sangre */
+    color: white;                     /* Texto Blanco */
     font-weight: bold;
-    font-size: 16px;
-    border: 2px solid #ff5252;
-}
-QPushButton[class="stop_button"]:hover {
-    background-color: #d32f2f;
+    font-size: 16px;                  /* Letra más grande */
+    border: 2px solid #ff5252;        /* Borde rojo neón */
 }
 
-/* --- INPUTS, COMBOS, TABLAS --- */
+QPushButton[class="stop_button"]:hover {
+    background-color: #d32f2f;        /* Rojo más vivo al pasar el mouse */
+}
+
+/* --- CAMPOS DE TEXTO, LISTAS Y TABLAS --- 
+   (QLineEdit, QComboBox, QTextEdit, QTableWidget) */
 QLineEdit, QComboBox, QTextEdit, QTableWidget {
-    background-color: #1e1e1e;
+    background-color: #1e1e1e;        /* Fondo casi negro (Estilo terminal) */
     border: 1px solid #3d3d3d;
     border-radius: 3px;
-    color: #00ff00; /* Texto verde estilo terminal */
+    color: #00ff00;                   /* Texto verde hacker */
     padding: 4px;
-    selection-background-color: #00aaff;
+    selection-background-color: #00aaff; /* Color de selección de texto */
 }
+
+/* Encabezados de la Tabla de Puntos */
 QHeaderView::section {
     background-color: #333;
     color: #e0e0e0;
@@ -92,54 +124,61 @@ QHeaderView::section {
     padding: 4px;
 }
 
-/* --- INDICADORES LED (Círculos) --- */
-QLabel#sensor_led_off {
-    background-color: #333;
-    border: 2px solid #555;
-    border-radius: 15px;
-    color: #777;
-    qproperty-alignment: AlignCenter;
-}
-QLabel#sensor_led_on {
-    background-color: #ff3333;
-    border: 2px solid #ff0000;
-    border-radius: 15px;
-    color: white;
-    font-weight: bold;
-    qproperty-alignment: AlignCenter;
-}
+/* =========================================================
+   SECCIÓN DE INDICADORES LED (CÍRCULOS DE SENSORES X/Y/Z)
+   Nota: Hay reglas duplicadas aquí abajo para los LEDs.
+   La segunda definición es más completa y sobreescribe a la primera.
+   ========================================================= */
 
-/* --- INDICADORES LED (Círculos) --- */
+/* (Bloque duplicado ignorado, se explica el de abajo que es el efectivo) */
+
+/* --- LED APAGADO (Gris) --- */
 QLabel#sensor_led_off {
-    background-color: #333;       /* Gris oscuro (Apagado) */
-    border: 2px solid #555;       /* Borde gris */
-    border-radius: 15px;          /* Radio 15px hace que un cuadrado de 30px sea un círculo */
-    min-width: 30px;              /* Ancho fijo vital */
-    min-height: 30px;             /* Alto fijo vital */
+    background-color: #333;           /* Gris oscuro */
+    border: 2px solid #555;           /* Borde gris medio */
+    
+    /* TRUCO PARA HACER CÍRCULOS:
+       Radio de borde = Mitad del tamaño (15px es la mitad de 30px) */
+    border-radius: 15px;          
+    
+    /* Tamaño forzado para garantizar que sea un círculo perfecto */
+    min-width: 30px;              
+    min-height: 30px;             
     max-width: 30px;
     max-height: 30px;
-    color: #777;                  /* Color de la letra */
-    qproperty-alignment: AlignCenter;
+    
+    color: #777;                      /* Letra oscura */
+    qproperty-alignment: AlignCenter; /* Centrar la letra X/Y/Z */
     font-weight: bold;
 }
 
+/* --- LED ENCENDIDO (Rojo) --- */
 QLabel#sensor_led_on {
-    background-color: #ff3333;    /* Rojo brillante (Prendido) */
-    border: 2px solid #ff0000;
-    border-radius: 15px;
+    background-color: #ff3333;        /* Rojo brillante */
+    border: 2px solid #ff0000;        /* Borde rojo puro */
+    border-radius: 15px;              /* Círculo */
+    
+    /* Mismas dimensiones fijas */
     min-width: 30px;
     min-height: 30px;
     max-width: 30px;
     max-height: 30px;
-    color: white;
+    
+    color: white;                     /* Letra blanca para contraste */
     font-weight: bold;
     qproperty-alignment: AlignCenter;
 }
 
-/* --- BADGES DE ESTADO (HOME, WAIT, FINISH) --- */
+/* =========================================================
+   BADGES DE ESTADO DEL SISTEMA (HOME, WAIT, FINISH)
+   Estos son los rectángulos de estado en el panel izquierdo.
+   Se cambian dinámicamente desde Python con setProperty.
+   ========================================================= */
+
+/* Estado INACTIVO (Gris oscuro) */
 QLabel[class="status_badge_off"] {
     background-color: #333;
-    color: #555;
+    color: #555;                      /* Texto apagado */
     border: 1px solid #444;
     border-radius: 4px;
     padding: 4px;
@@ -147,30 +186,33 @@ QLabel[class="status_badge_off"] {
     qproperty-alignment: AlignCenter;
 }
 
+/* Estado HOME OK (Verde) */
 QLabel[class="status_badge_home_on"] {
-    background-color: #2e7d32; /* Verde Oscuro */
+    background-color: #2e7d32;        /* Verde Bosque */
     color: white;
-    border: 1px solid #4caf50;
+    border: 1px solid #4caf50;        /* Borde Verde Claro */
     border-radius: 4px;
     padding: 4px;
     font-weight: bold;
     qproperty-alignment: AlignCenter;
 }
 
+/* Estado WAIT/BUSY (Amarillo/Ámbar) */
 QLabel[class="status_badge_wait_on"] {
-    background-color: #fbc02d; /* Amarillo */
-    color: black;
-    border: 1px solid #ffeb3b;
+    background-color: #fbc02d;        /* Amarillo Huevo */
+    color: black;                     /* Texto negro para legibilidad */
+    border: 1px solid #ffeb3b;        /* Borde Amarillo Brillante */
     border-radius: 4px;
     padding: 4px;
     font-weight: bold;
     qproperty-alignment: AlignCenter;
 }
 
+/* Estado FINISH (Azul) */
 QLabel[class="status_badge_finish_on"] {
-    background-color: #0277bd; /* Azul */
+    background-color: #0277bd;        /* Azul Océano */
     color: white;
-    border: 1px solid #03a9f4;
+    border: 1px solid #03a9f4;        /* Borde Celeste */
     border-radius: 4px;
     padding: 4px;
     font-weight: bold;
