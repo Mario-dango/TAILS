@@ -24,6 +24,9 @@ extern int homeStatus;      // La usabas en main.c, quizás debas definirla aqu�
 uint32_t lastTelemetryCheck = 0;
 uint32_t lastTelemetrySentTime = 0;
 
+// Asegúrate de tener acceso a la variable de estado
+extern volatile uint8_t robotState;
+
 // Variables para recordar el estado anterior (static mantiene el valor entre llamadas)
 static int prevX = -99999;
 static int prevY = -99999;
@@ -241,32 +244,76 @@ uint8_t Robot_ModoEjecucion(void){
 }
 
 void Robot_ProcesarComando(char *cmd){
-    // Este switch gigante estaba en tu main.c
+
+    // ============================================================
+    // 1. ZONA DE SEGURIDAD (BLOQUEO POR E-STOP)
+    // ============================================================
+    if (robotState == STATE_ESTOP) {
+        // En este estado, el robot es un ladrillo. Solo escucha un comando.
+
+        // Verificamos si es el comando de REINICIO (:-R)
+        if (cmd[0] == ':' && cmd[1] == '-' && cmd[2] == 'R') {
+
+            // --- PROCEDIMIENTO DE DESBLOQUEO ---
+            robotState = STATE_IDLE; // 1. Volvemos al estado normal
+
+            // 2. Reactivamos los drivers (torque)
+            ActivatedAll(1);
+
+            // 3. Feedback al usuario
+            sprintf(buffer_tx, "SISTEMA DESBLOQUEADO. RECALIBRAR.\r\n");
+            USB_Print(buffer_tx);
+
+            // 4. Limpiamos el LCD inmediatamente (opcional, o dejamos que main lo haga)
+            Lcd_Clear();
+            Lcd_Set_Cursor(1,1); Lcd_Send_String("System Unlocked");
+        }
+        else {
+            // CUALQUIER OTRO COMANDO SE RECHAZA
+            sprintf(buffer_tx, "ERROR: E-STOP ACTIVO. ENVIE ':-R' PARA REINICIAR.\r\n");
+            USB_Print(buffer_tx);
+        }
+        return; // ¡IMPORTANTE! Salimos aquí para no ejecutar nada más.
+    }
+
+    // ============================================================
+    // 2. PROCESAMIENTO NORMAL (Si no hay emergencia)
+    // ============================================================
     if (cmd[0] == ':'){
         switch (cmd[1]){
             case '-':
-                sprintf(buffer_tx, "Modo Calibracion\r\n"); USB_Print(buffer_tx);
-                Robot_ModoCalibracion();
+                // Comandos de Configuración
+                if (cmd[2] == 'H') {
+                     // Homing cambia el estado a HOMING
+                     robotState = STATE_HOMING;
+                     Robot_ModoCalibracion();
+                     // Al volver, si fue exitoso, regresamos a IDLE
+                     if (robotState != STATE_ESTOP) robotState = STATE_IDLE;
+                }
+                else {
+                     Robot_ModoCalibracion();
+                }
                 break;
+
+            case '#':
+                // Comandos de Movimiento
+                robotState = STATE_MOVING;
+                Robot_ModoEjecucion();
+                if (robotState != STATE_ESTOP) robotState = STATE_IDLE;
+                break;
+
             case '+':
-                sprintf(buffer_tx, "Modo Aprendizaje\r\n"); USB_Print(buffer_tx);
                 Robot_ModoAprendizaje();
                 break;
-            case '#':
-                sprintf(buffer_tx, "Modo Ejecucion\r\n"); USB_Print(buffer_tx);
-                Robot_ModoEjecucion();
-                break;
-            case '?':
-                Robot_Consignas();
-                break;
+
             default:
-                sprintf(buffer_tx, "Comando desconocido\r\n"); USB_Print(buffer_tx);
+                USB_Print("Comando desconocido\r\n");
                 break;
         }
-    } else if (cmd[0] == '?'){
-        Robot_Consignas();
     }
 }
+
+
 void Robot_UpdateTelemetry(void) {
     // Revisar cada 50ms (más rápido que antes, pero solo envía si hay cambios)
     if (HAL_GetTick() - lastTelemetryCheck < 50) return;

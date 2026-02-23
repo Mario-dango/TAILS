@@ -29,12 +29,41 @@ void Lcd_Send_Char(char data)
 
 void Lcd_Init(void)
 {
-	HAL_Delay(60);
-	Lcd_Send_Cmd(0x02);
-	Lcd_Send_Cmd(0x28);
-	Lcd_Send_Cmd(0x0C);
-	Lcd_Send_Cmd(0x80);
-	Lcd_Send_Cmd(0x01);
+    // 1. Espera inicial de seguridad (el datasheet pide >40ms tras VCC sube a 2.7V)
+    HAL_Delay(50);
+
+    // 2. SECUENCIA MÁGICA DE RESET (Hitachi HD44780)
+    // Intentamos forzar modo 8-bit tres veces para resetear la máquina de estados interna
+    // Nota: Usamos Lcd_Send_Cmd(0x30) repetidamente.
+    // Aunque tu función manda 2 nibbles, el LCD interpretará el reset correctamente.
+
+    Lcd_Send_Cmd(0x30);
+    HAL_Delay(5);  // Esperar > 4.1ms
+
+    Lcd_Send_Cmd(0x30);
+    HAL_Delay(1);  // Esperar > 100us
+
+    Lcd_Send_Cmd(0x30);
+    HAL_Delay(10);
+
+    // 3. Ahora sí, pasamos a modo 4-bits
+    Lcd_Send_Cmd(0x20); // Function Set: 4-bit interface
+    HAL_Delay(10);
+
+    // 4. Configuración Estándar (La que ya tenías)
+    Lcd_Send_Cmd(0x28); // 4-bit, 2 líneas, 5x8 puntos
+    HAL_Delay(1);
+
+    Lcd_Send_Cmd(0x08); // Display OFF (para evitar parpadeos mientras configuramos)
+    HAL_Delay(1);
+
+    Lcd_Send_Cmd(0x01); // Clear Display
+    HAL_Delay(2);       // Este comando tarda más, dale 2ms mínimo
+
+    Lcd_Send_Cmd(0x06); // Entry Mode: Increment cursor, no shift
+    HAL_Delay(1);
+
+    Lcd_Send_Cmd(0x0C); // Display ON, Cursor OFF, Blink OFF
 }
 
 void Lcd_Clear(void)

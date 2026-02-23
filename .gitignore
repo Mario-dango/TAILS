@@ -1,9 +1,92 @@
-# Se agregó el git ignore para poder desacoplar la carpeta de metadata del entonro de STM32cubeIDE
+# ==========================
+# PYTHON (Interfaz)
+# ==========================
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
 
-programa/.metadata/
+# Entornos virtuales (nombre común)
+venv/
+env/
+.env
 
-# Se agregó al git ignore la carpeta de PyCache correspondiente al apartado de interfaz
+# Pruebas y reportes de Pytest
+.pytest_cache/
+.coverage
+htmlcov/
 
-interfaz/__pycache__
-# También alguna configuración que pueda aparecer desde el entorno de VSCode
-interfaz/.vscode
+# Logs
+*.log
+
+# ==========================
+# STM32 / C++ (Firmware)
+# ==========================
+# Carpetas de compilación generadas por STM32CubeIDE
+Debug/
+Release/
+build/
+Bin/
+Obj/
+
+# Archivos binarios y de objetos
+*.elf
+*.bin
+*.hex
+*.map
+*.su
+*.o
+*.d
+*.a
+*.list
+*.launch
+
+# Configuración local de Eclipse/STM32CubeIDE
+.settings/
+.metadata/
+*.ioc.bak
+
+# ==========================
+# IDEs y SISTEMA OPERATIVO
+# ==========================
+# VSCode
+.vscode/
+*.code-workspace
+
+# PyCharm / IntelliJ
+.idea/
+
+# Windows / Mac Junk
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# ==========================
+# KiCad (Diseño de PCB)
+# ==========================
+# Carpetas de autoguardado y caché
+*-backups/
+fp-info-cache/
+
+# Archivos de Backup de esquemáticos y PCBs
+*.bak
+*-bak
+*.kicad_pcb-bak
+*.kicad_sch-bak
+*.sch-bak
+*.bck
+
+# Archivos de rescate y caché de librerías antiguas
+*-cache.lib
+*-rescue.lib
+*-rescue.dcm
+*-rescue.kicad_sym
+
+# Archivos autogenerados (Listas de redes y BOMs XML)
+*.net
+*.xml   
+
+# ==========================
+# Qodo / Otros
+# ==========================
+.qodo

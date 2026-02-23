@@ -230,7 +230,7 @@ class View(QMainWindow):
         self.is_kawaii = state
         for item, config in self.icon_registry.items():
             if self.is_kawaii:
-                path = os.path.join("resources", config["name"])
+                path = os.path.join("images/icons", config["name"])
                 if os.path.exists(path):
                     item.setIcon(QIcon(path))
                     if hasattr(item, 'setIconSize'):

@@ -1,3 +1,0 @@
-../Core/Src/comm_manager.c:12:6:USB_Print	24	static
-../Core/Src/comm_manager.c:26:5:BuscarValor	24	static
-../Core/Src/comm_manager.c:35:6:CDC_FS_Substring	32	static
