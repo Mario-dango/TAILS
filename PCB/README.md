@@ -14,24 +14,30 @@ El cerebro de la placa es un microcontrolador **STM32F103C8T6 (Bluepill)**. El c
 
 
 ### 🧠 Bloques Principales:
-1. **Controlador STM32F103C8T6:** Se utiliza cómo nucleo crentral una placa de desarrollo bluepill con el *STM32F103C8T6* cómo microcontrolador principal. 
+1. **Controlador STM32F103C8T6:** Se utiliza cómo nucleo crentral una placa de desarrollo bluepill con el *STM32F103C8T6* cómo microcontrolador principal.
+
 ![Diagrama Esquemático de T.A.I.L.S.](resources/sch03.png)
 
 2. **Control de Motores (Ejes X, Y, Z):** Se implementaron 3 zócalos para drivers de motores paso a paso **Pololu A4988**, incluyendo configuración de micro-pasos (MS1, MS2, MS3) y filtrado capacitivo en la alimentación de potencia.
+
 ![Diagrama Esquemático de T.A.I.L.S.](resources/sch05.png)
 
 ![Diagrama Esquemático de T.A.I.L.S.](resources/sch08.png)
 
 3. **Acondicionamiento de Sensores:** Entradas para 3 finales de carrera (End-Stops). Utiliza transistores PNP (**BC558**) para adaptar y proteger las señales lógicas de 3.3V que van hacia el STM32.
+
 ![Diagrama Esquemático de T.A.I.L.S.](resources/sch07.png)
 ![Diagrama Esquemático de T.A.I.L.S.](resources/sch01.png)
 4. **Gestión de Energía:** Etapa de regulación dual. A partir de la tensión de entrada principal (VCC), se extraen **5V** a través de un regulador lineal `LM7805` (para los servos y lógica general) y **3.3V** mediante un regulador ajustable `LM317` (para el STM32 y lógica de sensores).
+
 ![Diagrama Esquemático de T.A.I.L.S.](resources/sch04.png)
 5. **Interfaz de Usuario y Salidas:** * LEDs indicadores de estado (`HOME`, `WAIT`, `FINISH`).
    * LEDs testigos de tensión (`VCC`, `5V`, `3.3V`).
+
 ![Diagrama Esquemático de T.A.I.L.S.](resources/sch06.png)
    * Salida PWM dedicada de 5V para el actuador final (Gripper / Servo).
    * Botón de Parada de Emergencia externo (E-STOP).
+   
 ![Diagrama Esquemático de T.A.I.L.S.](resources/sch09.png)
 ![Diagrama Esquemático de T.A.I.L.S.](resources/sch02.png)
 
