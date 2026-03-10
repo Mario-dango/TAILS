@@ -15,7 +15,7 @@ El proyecto fusiona un diseño mecánico impreso en 3D con una electrónica dedi
 
 | El Robot (T.A.I.L.S) | La Interfaz de Control |
 | :---: | :---: |
-| ![Foto del Brazo Robótico terminado](resources/foto_robot_placeholder.png) | ![Captura de la Pestaña de Aprendizaje](resources/captura_gui_placeholder.png) |
+| ![Foto del Brazo Robótico terminado](Documentación/Fotos/extra/TAILS.jpg/) | ![Captura de la Pestaña de Aprendizaje](interfaz/images/Aprendizaje/learn.png) |
 | *Vista del ensamblaje mecánico y electrónica* | *Panel de control MVC con visualización de telemetría* |
 
 ---
