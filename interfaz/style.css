@@ -1,220 +1,463 @@
 /* ==========================================================================
-   HOJA DE ESTILOS PRINCIPAL (T.A.I.L.S. DARK THEME)
-   Define la apariencia visual de toda la aplicación PyQt5.
+   T.A.I.L.S. — HOJA DE ESTILOS (v2, "Instrument Dark")
+   Reemplaza interfaz/style.css
+
+   Cambios respecto de v1:
+   · Paleta en 4 capas (canvas / panel / hundido / elevado) en vez de 1 gris plano
+   · Se elimina el verde #00ff00 sobre negro: los inputs son texto claro legible
+   · Tipografía: IBM Plex Sans para UI, IBM Plex Mono para números y consola
+   · Grupos sin "título flotante": encabezado en mayúsculas pequeñas
+   · Botones con jerarquía real: primario / secundario / peligro / éxito
+   · LEDs y badges con estados semánticos consistentes
    ========================================================================== */
 
-/* --- ESTILO GENERAL --- 
-   Aplica al fondo de la ventana principal y a todos los widgets por defecto. */
-QMainWindow, QWidget {
-    background-color: #2b2b2b;        /* Gris muy oscuro (Fondo principal) */
-    color: #e0e0e0;                   /* Blanco humo (Texto general) */
-    font-family: 'Segoe UI', Arial, sans-serif; /* Tipografía moderna */
-    font-size: 13px;                  /* Tamaño de letra base cómodo */
+/* ---------- 1. BASE ---------- */
+QMainWindow, QDialog {
+    background-color: #14171b;
+}
+QWidget {
+    background-color: transparent;
+    color: #e6e9ec;
+    font-family: 'IBM Plex Sans', 'Segoe UI', Arial, sans-serif;
+    font-size: 18px;
+}
+QToolTip {
+    background-color: #1e2429;
+    color: #e6e9ec;
+    border: 1px solid #38404a;
+    border-radius: 4px;
+    padding: 7px 9px;
 }
 
-/* --- PANELES Y AGRUPADORES (QGroupBox) --- 
-   Son los recuadros con título (ej: "Conexión", "Posición Actual"). */
+/* ---------- 2. MENÚ ---------- */
+QMenuBar {
+    background-color: #191d21;
+    border-bottom: 1px solid #2b3138;
+    padding: 2px 8px;
+}
+QMenuBar::item { padding: 8px 16px; border-radius: 5px; color: #c7cfd6; }
+QMenuBar::item:selected { background: #232a30; color: #ffffff; }
+QMenu {
+    background-color: #1b2025;
+    border: 1px solid #2f353c;
+    border-radius: 8px;
+    padding: 7px;
+}
+QMenu::item { padding: 9px 35px 9px 16px; border-radius: 5px; }
+QMenu::item:selected { background: #0e2b38; color: #8fd3f7; }
+QMenu::separator { height: 1px; background: #2b3138; margin: 5px 8px; }
+
+/* ---------- 3. PANELES (QGroupBox) ----------
+   El título ya no "flota" sobre el borde: se dibuja arriba a la izquierda,
+   en versalitas pequeñas y gris, para que el contenido gane espacio. */
 QGroupBox {
-    border: 1px solid #4d4d4d;        /* Borde gris sutil */
-    border-radius: 5px;               /* Esquinas ligeramente redondeadas */
-    margin-top: 20px;                 /* Espacio superior para que el título no choque */
-    font-weight: bold;                /* Título en negrita */
-    color: #00aaff;                   /* Título en Azul Cyan brillante */
+    background-color: #191d21;
+    border: 1px solid #2b3138;
+    border-radius: 10px;
+    /* margin-top tiene que dar para el ALTO del título: el título se dibuja en
+       esa banda (subcontrol-origin: margin) y con 8px no entraba, así que el
+       borde superior del marco le cortaba el texto por la mitad. */
+    margin-top: 18px;
+    padding: 12px 16px 16px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #79838d;
 }
-
-/* Ajuste específico para el texto del título del GroupBox */
 QGroupBox::title {
-    subcontrol-origin: margin;        /* Posiciona el título sobre el borde superior */
-    left: 10px;                       /* Sangría izquierda */
-    padding: 0 3px;                   /* Pequeño respiro alrededor del texto */
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 12px;
+    top: 0px;
+    padding: 0 2px;
+    letter-spacing: 1.4px;
+    text-transform: uppercase;
 }
+/* Panel hundido (consola, vistas, celdas de datos) */
+QFrame[panel="sunken"] {
+    background-color: #0d1013;
+    border: 1px solid #262c32;
+    border-radius: 8px;
+}
+QFrame[panel="raised"] {
+    background-color: #1e2429;
+    border: 1px solid #38404a;
+    border-radius: 8px;
+}
+QFrame[panel="hline"] { background: #2b3138; max-height: 1px; border: 0; }
 
-/* --- PESTAÑAS (QTabWidget) - BARRA DE NAVEGACIÓN --- 
-   Controla la apariencia de las pestañas "Calibración", "Aprendizaje", "Ejecución". */
-
-/* El contenedor del contenido de la pestaña (el panel grande debajo de las solapas) */
+/* ---------- 4. PESTAÑAS ----------
+   Se dibujan como "segmented control" sobre el panel, no como carpetas. */
 QTabWidget::pane {
-    border: 1px solid #444;           /* Borde que rodea todo el contenido */
-    background: #2b2b2b;              /* Mismo color de fondo que la ventana */
+    border: 1px solid #2b3138;
+    border-radius: 10px;
+    background: #191d21;
+    top: -1px;
 }
-
-/* Estilo de la pestaña NO seleccionada (Estado inactivo) */
+QTabBar { qproperty-drawBase: 0; }
 QTabBar::tab {
-    background: #1e1e1e;              /* Fondo más oscuro para dar profundidad */
-    color: #aaaaaa;                   /* Texto gris apagado */
-    border: 1px solid #444;           /* Borde sutil */
-    
-    /* CRÍTICO: Espaciado interno y ancho mínimo para evitar que el texto se corte 
-       cuando se pone en negrita al seleccionarlo. */
-    padding: 8px 25px; 
-    min-width: 120px;
-    
-    margin-right: 2px;                /* Separación entre pestañas */
-    border-top-left-radius: 4px;      /* Suavizado superior */
-    border-top-right-radius: 4px;
+    background: transparent;
+    color: #8b949e;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    padding: 12px 27px;
+    margin: 3px 3px 3px 0;
+    min-width: 175px;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
 }
-
-/* Estilo de la pestaña SELECCIONADA (Activa) */
+QTabBar::tab:hover { background: #1e2429; color: #e6e9ec; }
 QTabBar::tab:selected {
-    background: #3a3a3a;              /* Fondo ligeramente más claro para resaltar */
-    color: #00aaff;                   /* Texto Cyan brillante para indicar foco */
-    border-bottom-color: #3a3a3a;     /* Truco visual: borra el borde inferior para unirla al panel */
-    font-weight: bold;                /* Texto grueso (causa que se ensanche) */
+    background: #0e2b38;
+    color: #8fd3f7;
+    border: 1px solid #2a7fb8;
 }
 
-/* Efecto al pasar el mouse por encima (Hover) */
-QTabBar::tab:hover {
-    background: #333;                 /* Aclarado sutil */
-    color: #ffffff;                   /* Texto blanco puro */
-}
-
-/* --- BOTONES (QPushButton) --- 
-   Estilo base para todos los botones de la interfaz. */
+/* ---------- 5. BOTONES ---------- */
 QPushButton {
-    background-color: #3a3a3a;        /* Gris medio */
-    border: 1px solid #555;           /* Borde definido */
-    border-radius: 4px;               /* Bordes suaves */
-    padding: 6px;                     /* Espacio interno */
-    color: #e0e0e0;                   /* Texto claro */
-    min-height: 25px;                 /* Altura mínima garantizada */
+    background-color: #1e2429;
+    border: 1px solid #38404a;
+    border-radius: 8px;
+    padding: 11px 18px;
+    color: #c7cfd6;
+    font-size: 16px;
+    font-weight: 600;
+    min-height: 33px;
+    text-align: center;
+}
+QPushButton:hover { background-color: #232a30; border-color: #4fc0ff; color: #ffffff; }
+QPushButton:pressed { background-color: #171c21; border-color: #2a7fb8; }
+QPushButton:disabled { background-color: #171a1e; border-color: #262c32; color: #4d565e; }
+QPushButton:checked { background-color: #0e2b38; border-color: #2a7fb8; color: #8fd3f7; }
+
+/* Primario (acción principal del panel) */
+QPushButton[variant="primary"] {
+    background-color: #0e2b38;
+    border: 1px solid #2a7fb8;
+    color: #cbe9fb;
+}
+QPushButton[variant="primary"]:hover { background-color: #123648; border-color: #4fc0ff; }
+
+/* Éxito (guardar, play) */
+QPushButton[variant="success"] {
+    background-color: #1c7a4a;
+    border: 1px solid #3fbf7f;
+    color: #ffffff;
+}
+QPushButton[variant="success"]:hover { background-color: #229057; }
+
+/* Advertencia (pausa, previsualizar) */
+QPushButton[variant="warning"] {
+    background-color: #2f2a16;
+    border: 1px solid #8a6d1f;
+    color: #f5d98a;
+}
+QPushButton[variant="warning"]:hover { border-color: #f2b13c; }
+
+/* Peligro (limpiar todo, detener) */
+QPushButton[variant="danger"] {
+    background-color: #3a1417;
+    border: 1px solid #b6373d;
+    color: #ffb4b4;
+}
+QPushButton[variant="danger"]:hover { background-color: #4a1a1e; border-color: #e5484d; }
+
+/* Home parcial (Hxy / Hz) — antes tenía styleSheet inline cyan chillón */
+QPushButton[variant="home"] {
+    background-color: #0e2b38;
+    border: 1px solid #2a7fb8;
+    color: #8fd3f7;
+}
+QPushButton[variant="home"]:hover { background-color: #123648; border-color: #4fc0ff; }
+
+/* Botón compacto: mismo aspecto, menos aire. Para filas con muchos botones,
+   como las acciones de la rutina, donde el padding de 18px hacía que Qt
+   recortara los rótulos ("Captu", "Borr") en la ventana al tamaño mínimo.
+   Va por [role] y no por [variant] porque estos botones ya usan variant para
+   su color (primary / danger / success). */
+QPushButton[role="compact"] { padding: 9px 11px; font-size: 14px; }
+
+/* Icon button cuadrado (refrescar, limpiar consola) */
+QPushButton[variant="icon"] { padding: 0; min-width: 48px; max-width: 48px; min-height: 48px; max-height: 48px; }
+
+/* Botón de jogging: icono ARRIBA, etiqueta abajo.
+   Son QToolButton, no QPushButton: sólo QToolButton sabe apilar icono y texto
+   (ToolButtonTextUnderIcon). Con QPushButton el icono se dibujaba AL LADO del
+   rótulo y, con el padding heredado, los dos quedaban recortados. */
+QToolButton[variant="jog"], QToolButton[variant="home"] {
+    background-color: #1e2429;
+    border: 1px solid #38404a;
+    border-radius: 8px;
+    min-height: 89px;
+    padding: 6px 4px 8px 4px;
+    font-family: 'IBM Plex Mono', Consolas, monospace;
+    font-size: 15px;
+    font-weight: 600;
+    color: #9aa4ae;
+}
+QToolButton[variant="home"] {
+    background-color: #0e2b38;
+    border: 1px solid #2a7fb8;
+    color: #8fd3f7;
+}
+QToolButton[variant="jog"]:hover { border-color: #4fc0ff; background-color: #232a30; color: #ffffff; }
+QToolButton[variant="home"]:hover { border-color: #4fc0ff; background-color: #123648; color: #ffffff; }
+QToolButton[variant="jog"]:pressed,
+QToolButton[variant="home"]:pressed { background-color: #171c21; border-color: #2a7fb8; }
+QToolButton[variant="jog"]:disabled,
+QToolButton[variant="home"]:disabled { background-color: #171a1e; border-color: #262c32; color: #4d565e; }
+
+/* Transporte de ejecución (PLAY / PAUSA / DETENER) */
+QPushButton[variant="transport"] {
+    min-height: 75px;
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    border-radius: 9px;
 }
 
-/* Estado Hover (Mouse encima) */
-QPushButton:hover {
-    background-color: #444;           /* Más claro */
-    border-color: #00aaff;            /* Borde se ilumina en azul */
-}
-
-/* Estado Pressed (Clic mantenido) */
-QPushButton:pressed {
-    background-color: #222;           /* Se oscurece para simular hundimiento */
-    border-color: #005577;            /* Borde azul oscuro */
-}
-
-/* --- BOTÓN STOP DE EMERGENCIA (Estilo especial) --- 
-   Se aplica solo al botón que tenga la propiedad setProperty("class", "stop_button") */
+/* --- STOP DE EMERGENCIA --- */
 QPushButton[class="stop_button"] {
-    background-color: #b71c1c;        /* Rojo Sangre */
-    color: white;                     /* Texto Blanco */
-    font-weight: bold;
-    font-size: 16px;                  /* Letra más grande */
-    border: 2px solid #ff5252;        /* Borde rojo neón */
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #c62b31, stop:1 #9e1f24);
+    color: #ffffff;
+    font-size: 21px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    border: 1px solid #ff7176;
+    border-radius: 11px;
+    min-height: 68px;
+    text-align: left;
+    padding-left: 21px;
 }
-
 QPushButton[class="stop_button"]:hover {
-    background-color: #d32f2f;        /* Rojo más vivo al pasar el mouse */
+    background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #d63a40, stop:1 #ad2429);
 }
+QPushButton[class="stop_button"]:pressed { background-color: #8d1b20; }
 
-/* --- CAMPOS DE TEXTO, LISTAS Y TABLAS --- 
-   (QLineEdit, QComboBox, QTextEdit, QTableWidget) */
-QLineEdit, QComboBox, QTextEdit, QTableWidget {
-    background-color: #1e1e1e;        /* Fondo casi negro (Estilo terminal) */
-    border: 1px solid #3d3d3d;
-    border-radius: 3px;
-    color: #00ff00;                   /* Texto verde hacker */
-    padding: 4px;
-    selection-background-color: #00aaff; /* Color de selección de texto */
-}
-
-/* Encabezados de la Tabla de Puntos */
-QHeaderView::section {
-    background-color: #333;
-    color: #e0e0e0;
-    border: 1px solid #444;
-    padding: 4px;
-}
-
-/* =========================================================
-   SECCIÓN DE INDICADORES LED (CÍRCULOS DE SENSORES X/Y/Z)
-   Nota: Hay reglas duplicadas aquí abajo para los LEDs.
-   La segunda definición es más completa y sobreescribe a la primera.
-   ========================================================= */
-
-/* (Bloque duplicado ignorado, se explica el de abajo que es el efectivo) */
-
-/* --- LED APAGADO (Gris) --- */
-QLabel#sensor_led_off {
-    background-color: #333;           /* Gris oscuro */
-    border: 2px solid #555;           /* Borde gris medio */
-    
-    /* TRUCO PARA HACER CÍRCULOS:
-       Radio de borde = Mitad del tamaño (15px es la mitad de 30px) */
-    border-radius: 15px;          
-    
-    /* Tamaño forzado para garantizar que sea un círculo perfecto */
-    min-width: 30px;              
-    min-height: 30px;             
-    max-width: 30px;
-    max-height: 30px;
-    
-    color: #777;                      /* Letra oscura */
-    qproperty-alignment: AlignCenter; /* Centrar la letra X/Y/Z */
-    font-weight: bold;
-}
-
-/* --- LED ENCENDIDO (Rojo) --- */
-QLabel#sensor_led_on {
-    background-color: #ff3333;        /* Rojo brillante */
-    border: 2px solid #ff0000;        /* Borde rojo puro */
-    border-radius: 15px;              /* Círculo */
-    
-    /* Mismas dimensiones fijas */
-    min-width: 30px;
+/* ---------- 6. CAMPOS DE ENTRADA ----------
+   Sin verde fosforescente: texto claro, foco cyan. */
+QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {
+    background-color: #101316;
+    border: 1px solid #2f353c;
+    border-radius: 7px;
+    color: #e6e9ec;
+    padding: 9px 13px;
     min-height: 30px;
-    max-width: 30px;
-    max-height: 30px;
-    
-    color: white;                     /* Letra blanca para contraste */
-    font-weight: bold;
+    selection-background-color: #2a7fb8;
+    selection-color: #ffffff;
+}
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus { border-color: #4fc0ff; }
+QLineEdit::placeholder { color: #5e6871; }
+QLineEdit[role="numeric"], QLineEdit[role="mono"] {
+    font-family: 'IBM Plex Mono', Consolas, monospace;
+    font-size: 19px;
+}
+QComboBox::drop-down { border: 0; width: 30px; }
+QComboBox QAbstractItemView {
+    background: #1b2025;
+    border: 1px solid #2f353c;
+    border-radius: 8px;
+    color: #e6e9ec;
+    selection-background-color: #0e2b38;
+    selection-color: #8fd3f7;
+    padding: 6px;
+    outline: 0;
+}
+
+/* ---------- 7. TERMINAL / LOGS ---------- */
+QTextEdit {
+    background-color: #0d1013;
+    border: 1px solid #262c32;
+    border-radius: 8px;
+    color: #c3ccd4;
+    font-family: 'IBM Plex Mono', Consolas, monospace;
+    font-size: 16px;
+    padding: 11px 13px;
+    selection-background-color: #2a7fb8;
+}
+QLabel[role="prompt"] {
+    color: #4fc0ff;
+    font-family: 'IBM Plex Mono', Consolas, monospace;
+    font-size: 20px;
+    font-weight: 600;
+}
+
+/* ---------- 8. TABLA DE PUNTOS ---------- */
+QTableWidget {
+    background-color: #191d21;
+    alternate-background-color: #1b2025;
+    border: 1px solid #2b3138;
+    border-radius: 10px;
+    gridline-color: #21262b;
+    color: #e6e9ec;
+    font-family: 'IBM Plex Mono', Consolas, monospace;
+    font-size: 18px;
+    selection-background-color: #1c2b33;
+    selection-color: #ffffff;
+}
+QTableWidget::item { padding: 9px 11px; border: 0; }
+QTableWidget::item:selected { background: #1c2b33; color: #ffffff; }
+QHeaderView { background: transparent; }
+QHeaderView::section {
+    background-color: #1e2328;
+    color: #6b757e;
+    border: 0;
+    border-bottom: 1px solid #2b3138;
+    padding: 11px 11px;
+    font-family: 'IBM Plex Mono', Consolas, monospace;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+}
+QHeaderView::section:first { border-top-left-radius: 10px; }
+QHeaderView::section:last { border-top-right-radius: 10px; }
+QTableCornerButton::section { background: #1e2328; border: 0; }
+
+/* ---------- 9. SLIDER DE VELOCIDAD ---------- */
+QSlider::groove:horizontal {
+    height: 7px;
+    background: #101316;
+    border: 1px solid #262c32;
+    border-radius: 3px;
+}
+QSlider::sub-page:horizontal {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #2a7fb8, stop:1 #4fc0ff);
+    border-radius: 3px;
+}
+QSlider::handle:horizontal {
+    background: #ffffff;
+    border: 2px solid #4fc0ff;
+    width: 19px;
+    height: 19px;
+    margin: -6px 0;
+    border-radius: 9px;
+}
+QSlider::handle:horizontal:hover { border-color: #8ad6ff; }
+QSlider::tick:horizontal { background: #333a41; }
+
+/* ---------- 10. BARRA DE PROGRESO ---------- */
+QProgressBar {
+    background-color: #101316;
+    border: 1px solid #262c32;
+    border-radius: 6px;
+    height: 15px;
+    text-align: center;
+    color: #9aa4ae;
+    font-family: 'IBM Plex Mono', Consolas, monospace;
+    font-size: 13px;
+}
+QProgressBar::chunk {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #2a7fb8, stop:1 #4fc0ff);
+    border-radius: 5px;
+}
+
+/* ---------- 11. CHECKBOX / RADIO ---------- */
+QCheckBox, QRadioButton { color: #c7cfd6; spacing: 11px; padding: 6px 0; }
+QCheckBox::indicator, QRadioButton::indicator { width: 21px; height: 21px; }
+QCheckBox::indicator {
+    border: 1px solid #38404a; border-radius: 4px; background: #101316;
+}
+QCheckBox::indicator:checked { background: #2a7fb8; border-color: #4fc0ff; }
+QRadioButton::indicator {
+    border: 1px solid #38404a; border-radius: 9px; background: #101316;
+}
+QRadioButton::indicator:checked { background: #4fc0ff; border: 4px solid #101316; }
+
+/* ---------- 12. LEDS DE FINALES DE CARRERA ---------- */
+QLabel#sensor_led_off {
+    background-color: #2b3138;
+    border: 1px solid #333a41;
+    border-radius: 11px;
+    min-width: 30px; max-width: 30px; min-height: 30px; max-height: 30px;
+    color: #5e6871;
+    font-family: 'IBM Plex Mono', Consolas, monospace;
+    font-size: 13px;
+    font-weight: 700;
+    qproperty-alignment: AlignCenter;
+}
+QLabel#sensor_led_on {
+    background-color: #ff4d4d;
+    border: 1px solid #ff8080;
+    border-radius: 11px;
+    min-width: 30px; max-width: 30px; min-height: 30px; max-height: 30px;
+    color: #ffffff;
+    font-family: 'IBM Plex Mono', Consolas, monospace;
+    font-size: 13px;
+    font-weight: 700;
     qproperty-alignment: AlignCenter;
 }
 
-/* =========================================================
-   BADGES DE ESTADO DEL SISTEMA (HOME, WAIT, FINISH)
-   Estos son los rectángulos de estado en el panel izquierdo.
-   Se cambian dinámicamente desde Python con setProperty.
-   ========================================================= */
-
-/* Estado INACTIVO (Gris oscuro) */
+/* ---------- 13. BADGES DE ESTADO DEL SISTEMA ---------- */
 QLabel[class="status_badge_off"] {
-    background-color: #333;
-    color: #555;                      /* Texto apagado */
-    border: 1px solid #444;
-    border-radius: 4px;
-    padding: 4px;
-    font-weight: bold;
-    qproperty-alignment: AlignCenter;
+    background-color: #101316;
+    color: #5e6871;
+    border: 1px solid #262c32;
+    border-radius: 5px;
+    padding: 8px 12px;
+    font-family: 'IBM Plex Mono', Consolas, monospace;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    qproperty-alignment: 'AlignLeft|AlignVCenter';
 }
-
-/* Estado HOME OK (Verde) */
 QLabel[class="status_badge_home_on"] {
-    background-color: #2e7d32;        /* Verde Bosque */
-    color: white;
-    border: 1px solid #4caf50;        /* Borde Verde Claro */
-    border-radius: 4px;
-    padding: 4px;
-    font-weight: bold;
-    qproperty-alignment: AlignCenter;
+    background-color: #12301f; color: #8fe0ab; border: 1px solid #2c6b45;
+    border-radius: 5px; padding: 8px 12px;
+    font-family: 'IBM Plex Mono', Consolas, monospace;
+    font-size: 13px; font-weight: 700; letter-spacing: 1px;
+    qproperty-alignment: 'AlignLeft|AlignVCenter';
 }
-
-/* Estado WAIT/BUSY (Amarillo/Ámbar) */
 QLabel[class="status_badge_wait_on"] {
-    background-color: #fbc02d;        /* Amarillo Huevo */
-    color: black;                     /* Texto negro para legibilidad */
-    border: 1px solid #ffeb3b;        /* Borde Amarillo Brillante */
-    border-radius: 4px;
-    padding: 4px;
-    font-weight: bold;
-    qproperty-alignment: AlignCenter;
+    background-color: #2f2a16; color: #f5d98a; border: 1px solid #8a6d1f;
+    border-radius: 5px; padding: 8px 12px;
+    font-family: 'IBM Plex Mono', Consolas, monospace;
+    font-size: 13px; font-weight: 700; letter-spacing: 1px;
+    qproperty-alignment: 'AlignLeft|AlignVCenter';
+}
+QLabel[class="status_badge_finish_on"] {
+    background-color: #0e2b38; color: #a5dcf7; border: 1px solid #2a7fb8;
+    border-radius: 5px; padding: 8px 12px;
+    font-family: 'IBM Plex Mono', Consolas, monospace;
+    font-size: 13px; font-weight: 700; letter-spacing: 1px;
+    qproperty-alignment: 'AlignLeft|AlignVCenter';
 }
 
-/* Estado FINISH (Azul) */
-QLabel[class="status_badge_finish_on"] {
-    background-color: #0277bd;        /* Azul Océano */
-    color: white;
-    border: 1px solid #03a9f4;        /* Borde Celeste */
-    border-radius: 4px;
-    padding: 4px;
-    font-weight: bold;
-    qproperty-alignment: AlignCenter;
+/* ---------- 14. TIPOGRAFÍA DE APOYO ---------- */
+QLabel[role="section"] {
+    color: #79838d; font-size: 13px; font-weight: 600; letter-spacing: 1.4px;
 }
+QLabel[role="hint"] { color: #79838d; font-size: 15px; }
+QLabel[role="value"] {
+    color: #e6e9ec;
+    font-family: 'IBM Plex Mono', Consolas, monospace;
+    font-size: 26px;
+}
+QLabel[role="axis_x"] { color: #e05c68; font-weight: 700; font-size: 15px; }
+QLabel[role="axis_y"] { color: #5fbf7e; font-weight: 700; font-size: 15px; }
+QLabel[role="axis_z"] { color: #4fa8e0; font-weight: 700; font-size: 15px; }
+QLabel[role="chip"] {
+    background: #101316; border: 1px solid #2f353c; border-radius: 5px;
+    color: #9aa4ae; padding: 6px 11px;
+    font-family: 'IBM Plex Mono', Consolas, monospace; font-size: 13px;
+}
+QLabel[role="title"] { font-size: 19px; font-weight: 700; letter-spacing: 0.6px; color: #e6e9ec; }
+QLabel[role="subtitle"] { font-size: 12px; letter-spacing: 1.2px; color: #79838d; }
+
+/* Banner de alarma */
+QFrame#alarm_banner { background: #3a1417; border: 0; border-bottom: 1px solid #6b2229; }
+QFrame#alarm_banner QLabel[role="section"] { color: #ff8a8a; }
+QFrame#alarm_banner QLabel[role="hint"] { color: #e8c4c4; font-size: 16px; }
+
+/* ---------- 15. SCROLLBARS ---------- */
+QScrollBar:vertical { background: #171a1e; width: 13px; margin: 0; border-radius: 5px; }
+QScrollBar::handle:vertical { background: #333a42; border-radius: 5px; min-height: 35px; }
+QScrollBar::handle:vertical:hover { background: #465060; }
+QScrollBar:horizontal { background: #171a1e; height: 13px; margin: 0; border-radius: 5px; }
+QScrollBar::handle:horizontal { background: #333a42; border-radius: 5px; min-width: 35px; }
+QScrollBar::add-line, QScrollBar::sub-line { height: 0; width: 0; }
+QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
+
+/* ---------- 16. SPLITTER ---------- */
+QSplitter::handle { background: #2b3138; }
+QSplitter::handle:horizontal { width: 1px; }
+QSplitter::handle:vertical { height: 1px; }

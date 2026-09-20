@@ -4,6 +4,7 @@ TEST UI LEARNING - Pruebas visuales automatizadas sobre la pestaña de Aprendiza
 import pytest
 from PyQt5.QtCore import Qt
 from controller.main_controller import MainController
+from controller.learning_manager import COL_NUM, COL_NAME, COL_X, COL_G
 
 def test_add_point_to_table(qtbot, qapp, tmp_path):
     """
@@ -37,11 +38,16 @@ def test_add_point_to_table(qtbot, qapp, tmp_path):
     qtbot.mouseClick(controller.view.btn_add_point, Qt.LeftButton)
     qtbot.wait(1500)                # Pausa de 1.5s para que veamos cómo aparece la nueva fila en la tabla!
     
-    # 7. VERIFICACIÓN (Asserts): El programa comprueba que el clic funcionó
+    # 7. VERIFICACIÓN (Asserts): El programa comprueba que el clic funcionó.
+    # Las columnas son ["#", "NOMBRE", "X", "Y", "Z", "GARRA", "VEL %"]: la 0 es el
+    # número de paso, la 1 el nombre opcional, y los datos del movimiento arrancan
+    # en la 2 (ver COL_* en controller/learning_manager.py).
     tabla = controller.view.table_points
     assert tabla.rowCount() == 1, "La tabla debería tener 1 fila."
-    assert tabla.item(0, 0).text() == "100", "El valor X en la tabla no coincide."
-    assert tabla.item(0, 3).text() == "C", "El estado de la garra en la tabla no coincide."
+    assert tabla.item(0, COL_NUM).text() == "1", "La numeración de la fila no coincide."
+    assert tabla.item(0, COL_X).text() == "100", "El valor X en la tabla no coincide."
+    assert tabla.item(0, COL_G).text() == "C", "El estado de la garra en la tabla no coincide."
+    assert tabla.item(0, COL_NAME).text() == "", "El nombre del punto nace vacío (es opcional)."
 
 def test_clear_table_logic(qtbot):
     """
@@ -75,3 +81,96 @@ def test_clear_table_logic(qtbot):
     
     # 6. VERIFICACIÓN
     assert controller.view.table_points.rowCount() == 0, "La tabla debería estar vacía."
+
+def _capturar(controller, qtbot, x, y, z, nombre=""):
+    """Agrega un punto a la tabla como lo haría el operador con 'Capturar punto'."""
+    controller.current_pos = {'x': x, 'y': y, 'z': z}
+    qtbot.mouseClick(controller.view.btn_add_point, Qt.LeftButton)
+    if nombre:
+        fila = controller.view.table_points.rowCount() - 1
+        controller.view.table_points.item(fila, COL_NAME).setText(nombre)
+
+
+def test_reordenar_puntos_de_la_rutina(qtbot):
+    """El orden de la tabla ES el orden de ejecución: tiene que poder cambiarse.
+
+    Antes la única forma de corregir un punto capturado fuera de lugar era
+    borrarlo y volver a llevar el brazo físicamente hasta esa posición.
+    """
+    controller = MainController()
+    qtbot.addWidget(controller.view)
+    controller.view.tabs.setCurrentIndex(1)
+    controller.model.is_connected = lambda: True
+    controller.connection_mgr.update_ui_connection_state(True)
+
+    _capturar(controller, qtbot, 10, 1, 1, nombre="primero")
+    _capturar(controller, qtbot, 20, 2, 2, nombre="segundo")
+    _capturar(controller, qtbot, 30, 3, 3, nombre="tercero")
+
+    tabla = controller.view.table_points
+    assert tabla.rowCount() == 3
+
+    # Bajamos el primer punto un lugar
+    tabla.selectRow(0)
+    qtbot.mouseClick(controller.view.btn_move_down, Qt.LeftButton)
+
+    assert tabla.item(0, COL_NAME).text() == "segundo"
+    assert tabla.item(1, COL_NAME).text() == "primero"
+    assert tabla.item(0, COL_X).text() == "20"
+    assert tabla.item(1, COL_X).text() == "10"
+    # La selección viaja con el punto movido, no se queda en la fila 0.
+    assert tabla.currentRow() == 1
+    # La columna "#" se renumera: es sólo el orden, no un identificador.
+    assert [tabla.item(f, COL_NUM).text() for f in range(3)] == ["1", "2", "3"]
+
+    # Y lo volvemos a subir: la rutina queda como estaba
+    qtbot.mouseClick(controller.view.btn_move_up, Qt.LeftButton)
+    assert tabla.item(0, COL_NAME).text() == "primero"
+    assert tabla.currentRow() == 0
+
+
+def test_los_botones_de_reordenar_se_apagan_en_los_extremos(qtbot):
+    """Subir en la primera fila (o bajar en la última) no tiene sentido."""
+    controller = MainController()
+    qtbot.addWidget(controller.view)
+    controller.model.is_connected = lambda: True
+    controller.connection_mgr.update_ui_connection_state(True)
+
+    vista = controller.view
+    # Sin puntos no hay nada que mover
+    assert not vista.btn_move_up.isEnabled()
+    assert not vista.btn_move_down.isEnabled()
+
+    _capturar(controller, qtbot, 10, 1, 1)
+    _capturar(controller, qtbot, 20, 2, 2)
+
+    vista.table_points.selectRow(0)
+    assert not vista.btn_move_up.isEnabled(), "Primera fila: no se puede subir."
+    assert vista.btn_move_down.isEnabled()
+
+    vista.table_points.selectRow(1)
+    assert vista.btn_move_up.isEnabled()
+    assert not vista.btn_move_down.isEnabled(), "Última fila: no se puede bajar."
+
+
+def test_borrar_una_fila_reindexa_los_valores_previos(qtbot):
+    """El mapa de 'último valor válido' se indexa por número de fila.
+
+    Si no se reconstruye tras un borrado, revertir una edición inválida
+    restauraba el dato que antes vivía en OTRA fila.
+    """
+    controller = MainController()
+    qtbot.addWidget(controller.view)
+    controller.model.is_connected = lambda: True
+    controller.connection_mgr.update_ui_connection_state(True)
+
+    _capturar(controller, qtbot, 10, 1, 1)
+    _capturar(controller, qtbot, 20, 2, 2)
+
+    controller.view.table_points.selectRow(0)
+    qtbot.mouseClick(controller.view.btn_del_point, Qt.LeftButton)
+
+    previos = controller.learning_mgr._valores_previos
+    assert previos[(0, COL_X)] == "20", (
+        "Tras borrar la fila 0, la clave (0, X) debe apuntar al punto que quedó.")
+    assert (1, COL_X) not in previos, "No deben quedar claves de filas inexistentes."

@@ -13,19 +13,44 @@ Es autocontenido: recibe una función `send_cmd(cmd)` y cablea sus propios
 botones. Los resultados de cada prueba aparecen en la consola inferior.
 """
 
-from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QGroupBox,
-                             QPushButton, QLabel, QSpinBox, QCheckBox)
+from PyQt5.QtWidgets import (QDialog, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
+                             QGroupBox, QPushButton, QLabel, QSpinBox, QCheckBox,
+                             QScrollArea, QFrame, QApplication)
+from PyQt5.QtCore import Qt
 
 
-class TestPanel(QDialog):
+class DiagnosticsPanel(QDialog):
     def __init__(self, send_cmd, parent=None):
         super().__init__(parent)
         self.send_cmd = send_cmd  # callable: envía un comando al robot
 
         self.setWindowTitle("Panel de Test / Diagnóstico — T.A.I.L.S.")
-        self.resize(540, 660)
 
-        layout = QVBoxLayout(self)
+        # Windows le agrega a todo QDialog un botón "?" (ayuda contextual) en la
+        # barra de título. Acá no hay ayuda contextual que mostrar, así que el
+        # botón no hacía absolutamente nada: lo sacamos.
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+
+        # El contenido va dentro de un área desplazable y la ventana se mide
+        # contra la PANTALLA, no contra un alto fijo: con 660px fijos, en un
+        # monitor chico (o con escalado de Windows al 125%) la ventana salía por
+        # abajo y los últimos controles quedaban fuera del alcance del mouse.
+        disponible = QApplication.primaryScreen().availableGeometry().height()
+        self.resize(560, min(680, max(360, disponible - 80)))
+        self.setMinimumSize(460, 360)
+
+        marco = QVBoxLayout(self)
+        marco.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        marco.addWidget(scroll)
+
+        contenido = QWidget()
+        scroll.setWidget(contenido)
+        layout = QVBoxLayout(contenido)
 
         # --- GUÍA RÁPIDA ---
         guia = QLabel(

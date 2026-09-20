@@ -4,7 +4,19 @@ Se encarga exclusivamente de la pestaña "Aprendizaje":
 leer coordenadas, listarlas en la tabla (QTableWidget) y guardar rutinas en JSON.
 """
 
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QMessageBox, QTableWidgetItem, QFileDialog
+
+# Índices de columna de table_points, reexportados desde la vista para que haya
+# una sola definición del orden. La tabla es
+# ["#", "NOMBRE", "X", "Y", "Z", "GARRA", "VEL %"]: "#" es el número de paso
+# (solo visual), "NOMBRE" es opcional y los datos del movimiento arrancan en X.
+#
+# Están nombrados a propósito: la v1 usaba literales 0..4 y cada vez que se agregó
+# una columna los accesos quedaron corridos, cruzando los campos de las rutinas.
+from view.tab_teaching import (COL_NUM, COL_NAME, COL_X, COL_Y, COL_Z, COL_G,
+                               COL_V, RANGOS_CELDA)
+
 
 class LearningManager:
     def __init__(self, main_controller):
@@ -13,14 +25,30 @@ class LearningManager:
         self.view = main_controller.view
         self.model = main_controller.model
 
+        # Se pone en True mientras el programa repuebla la tabla, para que el
+        # guardián de validación no se dispare con nuestras propias escrituras.
+        self._repoblando = False
+        # Último valor válido por celda {(fila, col): texto}, para poder revertir
+        # una edición inválida sin perder lo que había antes.
+        self._valores_previos = {}
+
         self.init_connections()
 
     def init_connections(self):
         """Conecta los botones de la lista de puntos"""
+        self.view.table_points.itemChanged.connect(self.validate_cell)
         self.view.btn_add_point.clicked.connect(self.add_point_to_table)
         self.view.btn_del_point.clicked.connect(self.delete_point_from_table)
         self.view.btn_clear_all.clicked.connect(self.clear_all_table)
         self.view.btn_save_file.clicked.connect(self.save_routine_json)
+
+        # Reordenamiento de la rutina: el orden de la tabla ES el orden de
+        # ejecución, y hasta ahora un punto capturado fuera de lugar obligaba a
+        # borrarlo y volver a llevar el brazo hasta esa posición.
+        self.view.btn_move_up.clicked.connect(self.move_point_up)
+        self.view.btn_move_down.clicked.connect(self.move_point_down)
+        self.view.table_points.itemSelectionChanged.connect(self.refresh_move_buttons)
+        self.refresh_move_buttons()
 
     def log(self, prefix, msg):
         """Atajo para loguear en la consola inferior a través del jefe"""
@@ -48,20 +76,169 @@ class LearningManager:
         row_pos = self.view.table_points.rowCount()
         self.view.table_points.insertRow(row_pos)
 
-        # 3. Insertar los valores en las celdas (Col 0=X, 1=Y, 2=Z, 3=G, 4=V%)
-        self.view.table_points.setItem(row_pos, 0, QTableWidgetItem(str(x)))
-        self.view.table_points.setItem(row_pos, 1, QTableWidgetItem(str(y)))
-        self.view.table_points.setItem(row_pos, 2, QTableWidgetItem(str(z)))
-        self.view.table_points.setItem(row_pos, 3, QTableWidgetItem(g))
-        self.view.table_points.setItem(row_pos, 4, QTableWidgetItem(str(v)))
+        # 3. Insertar los valores en las celdas. El nombre nace vacío: es
+        #    opcional y lo completa el usuario para dar contexto al punto.
+        self._repoblando = True
+        self.view.table_points.setItem(row_pos, COL_NAME, QTableWidgetItem(""))
+        self.view.table_points.setItem(row_pos, COL_X, QTableWidgetItem(str(x)))
+        self.view.table_points.setItem(row_pos, COL_Y, QTableWidgetItem(str(y)))
+        self.view.table_points.setItem(row_pos, COL_Z, QTableWidgetItem(str(z)))
+        self.view.table_points.setItem(row_pos, COL_G, QTableWidgetItem(g))
+        self.view.table_points.setItem(row_pos, COL_V, QTableWidgetItem(str(v)))
+        self._repoblando = False
+        for col, val in ((COL_NAME, ""), (COL_X, x), (COL_Y, y),
+                         (COL_Z, z), (COL_G, g), (COL_V, v)):
+            self._valores_previos[(row_pos, col)] = str(val)
+        self.renumber_rows()
+        self.refresh_move_buttons()
 
         self.log("INFO", f"Punto agregado: X{x} Y{y} Z{z} {g} V{v}%")
+
+    def renumber_rows(self):
+        """Reescribe la columna '#' y el contador de la cabecera.
+
+        La columna 0 es puramente visual: se recalcula tras cada alta o baja para
+        que no queden huecos en la numeración.
+        """
+        tabla = self.view.table_points
+        self._repoblando = True
+        for fila in range(tabla.rowCount()):
+            item = QTableWidgetItem(str(fila + 1))
+            item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+            tabla.setItem(fila, COL_NUM, item)
+        self._repoblando = False
+
+        if hasattr(self.view.tab_teach, 'lbl_count'):
+            self.view.tab_teach.lbl_count.setText("%d puntos" % tabla.rowCount())
+
+    def validate_cell(self, item):
+        """Rechaza valores no numéricos o fuera del recorrido físico del robot.
+
+        El PointDelegate ya impide tipear basura desde el editor; esto cubre el
+        pegado y cualquier escritura que no pase por él: revierte la celda al
+        último valor bueno y explica por qué el movimiento no es válido.
+        """
+        if self._repoblando:
+            return
+        col = item.column()
+        clave = (item.row(), col)
+        if col not in RANGOS_CELDA:
+            self._valores_previos[clave] = item.text()
+            return          # "#", NOMBRE y GARRA no tienen rango numérico
+
+        etiqueta, minimo, maximo = RANGOS_CELDA[col]
+        texto = (item.text() or "").strip()
+        unidad = "%" if col == COL_V else "pasos"
+
+        try:
+            valor = int(texto)
+        except ValueError:
+            self._revert_cell(item, "«%s» no es un número entero." % texto,
+                              etiqueta, minimo, maximo, unidad)
+            return
+
+        if not (minimo <= valor <= maximo):
+            self._revert_cell(item, "Se recibió «%d»." % valor,
+                              etiqueta, minimo, maximo, unidad)
+            return
+
+        self._valores_previos[clave] = str(valor)
+
+    def _revert_cell(self, item, detalle, etiqueta, minimo, maximo, unidad):
+        """Restaura el último valor válido de la celda y avisa por qué."""
+        anterior = self._valores_previos.get((item.row(), item.column()),
+                                             str(minimo))
+        self._repoblando = True
+        item.setText(anterior)
+        self._repoblando = False
+        QMessageBox.warning(
+            self.view, "Movimiento fuera de rango",
+            "\n".join([
+                # Sólo la inicial: capitalize() convertiría "eje Z" en "Eje z".
+                "%s admite valores entre %d y %d %s."
+                % (etiqueta[:1].upper() + etiqueta[1:], minimo, maximo, unidad),
+                detalle,
+                "",
+                "Se restauró el valor anterior (%s)." % anterior,
+            ]))
+
+    # --- REORDENAMIENTO DE LA RUTINA ---
+    def move_point_up(self):
+        self._mover_fila(-1)
+
+    def move_point_down(self):
+        self._mover_fila(+1)
+
+    def _mover_fila(self, delta):
+        """Intercambia la fila seleccionada con su vecina y sigue la selección.
+
+        Se intercambia el CONTENIDO de las celdas en vez de usar
+        insertRow/removeRow: así el QTableWidgetItem del delegate no se recrea y
+        la fila mantiene sus banderas (la columna '#' no editable, por ejemplo).
+        """
+        tabla = self.view.table_points
+        fila = tabla.currentRow()
+        destino = fila + delta
+        if fila < 0 or not (0 <= destino < tabla.rowCount()):
+            return
+
+        # El guardián de validación se dispara con itemChanged: mientras movemos
+        # somos nosotros los que escribimos, así que lo silenciamos.
+        self._repoblando = True
+        for col in range(tabla.columnCount()):
+            if col == COL_NUM:
+                continue        # es sólo el número de orden: lo reescribe renumber_rows
+            a = tabla.item(fila, col)
+            b = tabla.item(destino, col)
+            texto_a = a.text() if a else ""
+            texto_b = b.text() if b else ""
+            if a is None:
+                a = QTableWidgetItem("")
+                tabla.setItem(fila, col, a)
+            if b is None:
+                b = QTableWidgetItem("")
+                tabla.setItem(destino, col, b)
+            a.setText(texto_b)
+            b.setText(texto_a)
+        self._repoblando = False
+
+        tabla.selectRow(destino)        # la selección viaja con el punto
+        self.renumber_rows()
+        self._reindexar_valores_previos()
+        self.refresh_move_buttons()
+
+    def refresh_move_buttons(self):
+        """Deshabilita Subir/Bajar en los extremos y sin selección."""
+        tabla = self.view.table_points
+        fila = tabla.currentRow()
+        hay_seleccion = fila >= 0 and tabla.rowCount() > 1
+        self.view.btn_move_up.setEnabled(hay_seleccion and fila > 0)
+        self.view.btn_move_down.setEnabled(
+            hay_seleccion and fila < tabla.rowCount() - 1)
+
+    def _reindexar_valores_previos(self):
+        """Reconstruye el mapa {(fila, col): texto} desde la tabla real.
+
+        Está indexado por número de fila, así que cualquier alta, baja o
+        reordenamiento lo desfasa. Antes no se reconstruía tras un borrado y el
+        'revertir al último valor válido' podía restaurar el dato de otra fila.
+        """
+        tabla = self.view.table_points
+        self._valores_previos = {}
+        for fila in range(tabla.rowCount()):
+            for col in range(tabla.columnCount()):
+                item = tabla.item(fila, col)
+                if item is not None:
+                    self._valores_previos[(fila, col)] = item.text()
 
     def delete_point_from_table(self):
         """Elimina la fila que el usuario tenga seleccionada con el mouse"""
         current_row = self.view.table_points.currentRow()
         if current_row >= 0:
             self.view.table_points.removeRow(current_row)
+            self.renumber_rows()
+            self._reindexar_valores_previos()
+            self.refresh_move_buttons()
 
     def clear_all_table(self):
         """Vacía toda la tabla previa confirmación de seguridad"""
@@ -80,6 +257,9 @@ class LearningManager:
 
         if reply == QMessageBox.Yes:
             self.view.table_points.setRowCount(0)
+            self.renumber_rows()
+            self._reindexar_valores_previos()
+            self.refresh_move_buttons()
             self.log("INFO", "Tabla de puntos limpiada.")
 
     # --- EXPORTAR ARCHIVO ---
@@ -101,19 +281,27 @@ class LearningManager:
             # Velocidad del segmento (%). Se valida/limita a 10..100; si la celda
             # quedó vacía o inválida, usamos 50 como valor seguro por defecto.
             try:
-                v = int(self.view.table_points.item(i, 4).text())
+                v = int(self.view.table_points.item(i, COL_V).text())
             except (AttributeError, ValueError):
                 v = 50
             v = max(10, min(100, v))
 
             p = {
                 "type": "MOV",
-                "x": int(self.view.table_points.item(i, 0).text()),
-                "y": int(self.view.table_points.item(i, 1).text()),
-                "z": int(self.view.table_points.item(i, 2).text()),
-                "g": self.view.table_points.item(i, 3).text(),
+                "x": int(self.view.table_points.item(i, COL_X).text()),
+                "y": int(self.view.table_points.item(i, COL_Y).text()),
+                "z": int(self.view.table_points.item(i, COL_Z).text()),
+                "g": self.view.table_points.item(i, COL_G).text(),
                 "v": v
             }
+
+            # Nombre del punto: opcional. Sólo se escribe la clave "n" si el
+            # usuario puso algo, para no ensuciar el JSON con cadenas vacías.
+            celda_nombre = self.view.table_points.item(i, COL_NAME)
+            nombre = celda_nombre.text().strip() if celda_nombre else ""
+            if nombre:
+                p["n"] = nombre
+
             routine.append(p)
             
         # 2. ABRIR DIÁLOGO DE SISTEMA PARA GUARDAR

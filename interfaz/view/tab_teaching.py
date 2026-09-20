@@ -1,184 +1,342 @@
 """
-PESTAÑA DE APRENDIZAJE (TEACHING TAB)
-Este widget contiene dos secciones principales:
-1. Panel de Control Manual (Jogging): Flechas de movimiento, velocidad y control de garra.
-2. Lista de Puntos (Rutina): Tabla para guardar coordenadas y botones de gestión de archivo.
+PESTAÑA APRENDIZAJE v2
+-----------------------
+Cambios respecto de la v1:
+ · La cruz de jogging deja de compartir grilla con la columna Z (antes el
+   separador "   |   " era una QLabel de texto); ahora son dos bloques con un
+   divisor real, y los botones respiran (gap de 6px, alto 64px).
+ · Incremento (1/10/50 pasos) pasa de tres radios sueltos a un segmented control
+   dentro del encabezado de la tarjeta: una fila menos de alto.
+ · Velocidad muestra el valor en grande y con rótulos de extremos.
+ · La tabla de puntos gana columnas "#" y "NOMBRE", filas alternadas, y
+   validación por celda (PointDelegate) contra el recorrido real de cada eje.
+ · Atajos de teclado visibles sobre cada botón (Kbd).
+
+Expone los mismos nombres que la v1 + step_group.
 """
 
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QGroupBox, 
-                             QPushButton, QLabel, QSlider, QRadioButton, QButtonGroup, 
-                             QTableWidget, QHeaderView)
+from PyQt5.QtWidgets import (QWidget, QFrame, QVBoxLayout, QHBoxLayout, QGridLayout,
+                             QPushButton, QToolButton, QLabel, QSlider, QRadioButton,
+                             QButtonGroup, QTableWidget, QHeaderView, QAbstractItemView,
+                             QStyledItemDelegate, QSpinBox, QComboBox, QLineEdit)
+from PyQt5.QtWidgets import QSizePolicy
 from PyQt5.QtCore import Qt
+from view.ui_widgets import SectionCard, Kbd, C_BORDER, RANGO_X, RANGO_Y, RANGO_Z
+
+# Columnas de table_points. Mismo orden que los COL_* de
+# controller/learning_manager.py — si cambia acá, hay que cambiarlo allá
+# (tests/ui/test_view_facade.py verifica que coincidan).
+COL_NUM, COL_NAME, COL_X, COL_Y, COL_Z, COL_G, COL_V = range(7)
+
+# Rango admitido por celda. Los de los ejes salen de ui_widgets, que es la única
+# fuente de verdad del recorrido real del robot.
+RANGOS_CELDA = {
+    COL_X: ("eje X", 0, RANGO_X),
+    COL_Y: ("eje Y", 0, RANGO_Y),
+    COL_Z: ("eje Z", 0, RANGO_Z),
+    COL_V: ("la velocidad", 10, 100),
+}
+
+
+class PointDelegate(QStyledItemDelegate):
+    """Editores por columna para la tabla de rutina.
+
+    Evita que se puedan escribir letras o valores fuera del recorrido físico:
+    los ejes y la velocidad se editan con QSpinBox acotado y la garra con un
+    desplegable A/C. El nombre queda como texto libre.
+    """
+
+    def createEditor(self, parent, option, index):
+        col = index.column()
+        if col in RANGOS_CELDA:
+            _, minimo, maximo = RANGOS_CELDA[col]
+            sb = QSpinBox(parent)
+            sb.setRange(minimo, maximo)
+            sb.setSuffix(" %" if col == COL_V else " pasos")
+            return sb
+        if col == COL_G:
+            cb = QComboBox(parent)
+            cb.addItem("A", "A")
+            cb.addItem("C", "C")
+            return cb
+        if col == COL_NAME:
+            le = QLineEdit(parent)
+            le.setMaxLength(40)
+            le.setPlaceholderText("opcional — ej. Tomar pieza")
+            return le
+        return None            # la columna "#" no se edita
+
+    def setEditorData(self, editor, index):
+        texto = (index.data() or "").strip()
+        if isinstance(editor, QSpinBox):
+            try:
+                editor.setValue(int(texto))
+            except ValueError:
+                editor.setValue(editor.minimum())
+        elif isinstance(editor, QComboBox):
+            i = editor.findData("C" if texto.upper().startswith("C") else "A")
+            editor.setCurrentIndex(max(0, i))
+        else:
+            super().setEditorData(editor, index)
+
+    def setModelData(self, editor, model, index):
+        if isinstance(editor, QSpinBox):
+            editor.interpretText()
+            model.setData(index, str(editor.value()), Qt.EditRole)
+        elif isinstance(editor, QComboBox):
+            model.setData(index, editor.currentData(), Qt.EditRole)
+        else:
+            super().setModelData(editor, model, index)
+
+
+def _jog(label, tooltip, variant="jog"):
+    """Botón de jogging: icono ARRIBA y etiqueta abajo.
+
+    Es un QToolButton y no un QPushButton por una razón concreta: QPushButton
+    sólo sabe dibujar el icono AL LADO del texto. El estilo pedía "icono arriba,
+    etiqueta abajo", pero lo que se veía era un icono de 41px peleando el ancho
+    con el rótulo dentro de un botón de 100px — recortados los dos. QToolButton
+    sí tiene ToolButtonTextUnderIcon.
+
+    Conserva clicked/click()/setIcon/setIconSize, así que el controlador, los
+    atajos de teclado y view.set_btn_icon() lo usan sin cambio alguno.
+    """
+    b = QToolButton()
+    b.setText(label)
+    b.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+    b.setProperty("variant", variant)
+    b.setMinimumHeight(88)
+    b.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+    b.setToolTip(tooltip)
+    return b
+
+
+def _shortcut(btn, key):
+    """Superpone la etiqueta de atajo en la esquina SUPERIOR DERECHA del botón.
+
+    Antes iba en (4, 4) y quedaba justo encima del icono, que ahora se dibuja
+    centrado arriba. Se reposiciona en cada resize porque el ancho del botón lo
+    decide el layout.
+    """
+    k = Kbd(key, btn)
+    k.adjustSize()
+
+    def reubicar(_=None, b=btn, chip=k):
+        chip.move(max(2, b.width() - chip.width() - 4), 3)
+        chip.raise_()
+
+    reubicar()
+    btn.resizeEvent = _con_reubicacion(btn.resizeEvent, reubicar)
+    return k
+
+
+def _con_reubicacion(original, reubicar):
+    """Envuelve un resizeEvent para reposicionar el chip del atajo."""
+    def manejador(event):
+        original(event)
+        reubicar()
+    return manejador
+
 
 class TeachingTab(QWidget):
     def __init__(self):
         super().__init__()
-        
-        # Layout principal horizontal: Izquierda (Jogging) | Derecha (Tabla)
-        self.layout = QHBoxLayout(self)
+        root = QHBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(9)
 
-        # ==========================================
-        # COLUMNA IZQUIERDA: CONTROLES MANUALES (JOGGING)
-        # ==========================================
-        col_jog = QVBoxLayout()
-        
-        # --- A. GRUPO: FLECHAS DE MOVIMIENTO ---
-        grp_jog = QGroupBox("Control Manual (Jogging)")
-        grid_jog = QGridLayout(grp_jog)
-        
-        # Botones de Ejes (X, Y, Z)
-        # Nota: Los iconos se asignan en view.py
-        self.btn_x_plus = QPushButton("X+")
-        self.btn_x_plus.setMinimumHeight(64)
-        self.btn_x_plus.setToolTip("Incrementar posición X.")
-        
-        self.btn_x_minus = QPushButton("X-")
-        self.btn_x_minus.setMinimumHeight(64)
-        self.btn_x_minus.setToolTip("Reducir posición X.")
-        
-        self.btn_y_plus = QPushButton("Y+")
-        self.btn_y_plus.setMinimumHeight(64)
-        self.btn_y_plus.setToolTip("Incrementar posición Y.")
-        
-        self.btn_y_minus = QPushButton("Y-")
-        self.btn_y_minus.setMinimumHeight(64)
-        self.btn_y_minus.setToolTip("Reducir posición Y.")
-        
-        self.btn_z_plus = QPushButton("Z+")
-        self.btn_z_plus.setMinimumHeight(64)
-        self.btn_z_plus.setToolTip("Incrementar posición Z.")
-        
-        self.btn_z_minus = QPushButton("Z-")
-        self.btn_z_minus.setMinimumHeight(64)
-        self.btn_z_minus.setToolTip("Reducir posición Z.")
-        
-        # Botones Especiales de Centrado (Home Parcial)
-        self.btn_home_xy = QPushButton("Hxy")
-        self.btn_home_xy.setMinimumHeight(64)
-        self.btn_home_xy.setToolTip("Mandar a home los motores X e Y.")
-        # Estilo específico para diferenciarlo (Cyan)
-        self.btn_home_xy.setStyleSheet("background-color: #00bcd4; color: black; font-weight: bold;")
-        
-        self.btn_home_z = QPushButton("Hz")
-        self.btn_home_z.setToolTip("Mandar a home al motor Z.")
-        # Estilo específico (Cyan)
-        self.btn_home_z.setStyleSheet("background-color: #00bcd4; color: black; font-weight: bold;")
+        # ══════════ IZQUIERDA: JOGGING ══════════
+        col = QVBoxLayout()
+        col.setSpacing(9)
 
-        # Distribución en la Grilla (Fila, Columna)
-        # Layout en cruz para X/Y
-        grid_jog.addWidget(self.btn_y_plus, 0, 1)
-        grid_jog.addWidget(self.btn_x_minus, 1, 0)
-        grid_jog.addWidget(self.btn_home_xy, 1, 1) # Centro XY
-        grid_jog.addWidget(self.btn_x_plus, 1, 2)
-        grid_jog.addWidget(self.btn_y_minus, 2, 1)
-        
-        # Separador visual y Columna Z
-        grid_jog.addWidget(QLabel("   |   "), 1, 3) 
-        grid_jog.addWidget(self.btn_z_plus, 0, 4)
-        grid_jog.addWidget(self.btn_home_z, 1, 4) # Centro Z
-        grid_jog.addWidget(self.btn_z_minus, 2, 4)
-        
-        # --- B. GRUPO: VELOCIDAD ---
-        grp_speed = QGroupBox("Velocidad de Movimiento (%)")
-        lay_speed = QHBoxLayout(grp_speed)
-        
-        self.slider_speed = QSlider(Qt.Horizontal)
-        self.slider_speed.setMinimum(10)
-        self.slider_speed.setMaximum(100)
-        self.slider_speed.setValue(50) # Valor inicial
-        self.slider_speed.setTickPosition(QSlider.TicksBelow)
-        self.slider_speed.setTickInterval(10)
-        
-        self.lbl_speed_val = QLabel("50%")
-        self.lbl_speed_val.setFixedWidth(35)
-        
-        lay_speed.addWidget(self.slider_speed)
-        lay_speed.addWidget(self.lbl_speed_val)
-        
-        # Agregamos primero la velocidad y luego la grilla de flechas
-        col_jog.addWidget(grp_speed)
-        col_jog.addWidget(grp_jog)
-        
-        # --- C. GRUPO: INCREMENTO (PASOS) ---
-        grp_step = QGroupBox("Incremento (Grados)")
-        lay_step = QHBoxLayout(grp_step)
-        
-        self.radio_1deg = QRadioButton("1°")
-        self.radio_10deg = QRadioButton("10°")
-        self.radio_50deg = QRadioButton("50°")
-        self.radio_10deg.setChecked(True) # Default
-        
-        # Grupo lógico de botones (para saber cuál está activo)
-        self.step_group = QButtonGroup()
+        # -- segmented control de incremento, dentro del encabezado --
+        step_box = QFrame()
+        # Selector acotado: sin él el borde alcanzaba a cada QRadioButton hijo.
+        step_box.setObjectName("step_box")
+        step_box.setStyleSheet(
+            "QFrame#step_box{background:#101316;border:1px solid #2f353c;"
+            "border-radius:6px;}")
+        sl = QHBoxLayout(step_box)
+        sl.setContentsMargins(0, 0, 0, 0)
+        sl.setSpacing(0)
+
+        # El incremento es en PASOS, igual que el firmware (:#X<n>). Los nombres
+        # radio_*deg vienen de la v1, cuando se rotulaban en grados por error.
+        self.radio_1deg = QRadioButton("1 paso")
+        self.radio_10deg = QRadioButton("10 pasos")
+        self.radio_50deg = QRadioButton("50 pasos")
+        self.radio_10deg.setChecked(True)
+        for r in (self.radio_1deg, self.radio_10deg, self.radio_50deg):
+            # se dibujan como botones, no como radios
+            r.setStyleSheet(
+                "QRadioButton{color:#8b949e;font-family:'IBM Plex Mono';font-size:12px;"
+                "font-weight:600;padding:7px 14px;}"
+                "QRadioButton::indicator{width:0;height:0;}"
+                "QRadioButton:checked{background:#2a7fb8;color:#ffffff;border-radius:5px;}")
+            sl.addWidget(r)
+
+        self.step_group = QButtonGroup(self)
         self.step_group.addButton(self.radio_1deg, 1)
         self.step_group.addButton(self.radio_10deg, 10)
         self.step_group.addButton(self.radio_50deg, 50)
-        
-        lay_step.addWidget(self.radio_1deg)
-        lay_step.addWidget(self.radio_10deg)
-        lay_step.addWidget(self.radio_50deg)
-        col_jog.addWidget(grp_step)
-        
-        # --- D. GRUPO: GARRA MANUAL ---
-        grp_man_grip = QGroupBox("Garra")
-        lay_man_grip = QHBoxLayout(grp_man_grip)
-        
-        self.btn_open_grip = QPushButton("Abrir")
-        self.btn_open_grip.setToolTip("Abrir garra según ángulo seteado.")
-        
-        self.btn_close_grip = QPushButton("Cerrar")
-        self.btn_close_grip.setToolTip("Cerrar garra según ángulo seteado.")
-        
-        lay_man_grip.addWidget(self.btn_open_grip)
-        lay_man_grip.addWidget(self.btn_close_grip)
-        col_jog.addWidget(grp_man_grip)
-        
-        col_jog.addStretch() # Empujar todo arriba
-        
-        # ==========================================
-        # COLUMNA DERECHA: LISTA DE PUNTOS (RUTINA)
-        # ==========================================
-        col_list = QVBoxLayout()
-        
-        # Título
-        col_list.addWidget(QLabel("Rutina Actual:"))
-        
-        # Tabla
-        self.table_points = QTableWidget()
-        self.table_points.setColumnCount(5)
-        # V% = velocidad del segmento (editable). Por defecto toma el slider al capturar.
-        self.table_points.setHorizontalHeaderLabels(["X", "Y", "Z", "G", "V%"])
-        # Hacer que las columnas se estiren para ocupar todo el ancho
-        self.table_points.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        
-        col_list.addWidget(self.table_points)
-        
-        # Botonera de Gestión de Lista
-        lay_btns_list = QHBoxLayout()
-        
-        self.btn_add_point = QPushButton("Guardar Punto Actual")
-        self.btn_add_point.setToolTip("Agregar punto actual a la lista de posiciones.")
 
-        self.btn_del_point = QPushButton("Borrar Seleccionado")
-        self.btn_del_point.setToolTip("Borrar fila seleccionada.")
-        
-        self.btn_clear_all = QPushButton("Limpiar Todo")
-        self.btn_clear_all.setToolTip("Borrar todas las posiciones de la lista.")
-        self.btn_clear_all.setStyleSheet("background-color: #d32f2f; font-weight: bold;") # Rojo alerta
-        
-        self.btn_save_file = QPushButton("Guardar Rutina JSON")
-        self.btn_save_file.setToolTip("Exportar lista a un archivo .json.")
-        
-        lay_btns_list.addWidget(self.btn_add_point)
-        lay_btns_list.addWidget(self.btn_del_point)
-        lay_btns_list.addWidget(self.btn_clear_all) 
-        lay_btns_list.addWidget(self.btn_save_file)
-        
-        col_list.addLayout(lay_btns_list)
-        
-        # ==========================================
-        # ENSAMBLAJE FINAL
-        # ==========================================
-        # Proporción: Jogging (1 parte) vs Lista (2 partes)
-        self.layout.addLayout(col_jog, 1)
-        self.layout.addLayout(col_list, 2)
+        card_jog = SectionCard("Control manual", right_widget=step_box)
+
+        pad_row = QHBoxLayout()
+        pad_row.setSpacing(12)
+
+        # cruz X/Y
+        grid = QGridLayout()
+        grid.setSpacing(6)
+        self.btn_y_plus = _jog("Y+", "Incrementar posición Y.  [↑]")
+        self.btn_y_minus = _jog("Y−", "Reducir posición Y.  [↓]")
+        self.btn_x_plus = _jog("X+", "Incrementar posición X.  [→]")
+        self.btn_x_minus = _jog("X−", "Reducir posición X.  [←]")
+        self.btn_home_xy = _jog("Hxy", "Mandar a home los motores X e Y.", "home")
+
+        grid.addWidget(self.btn_y_plus, 0, 1)
+        grid.addWidget(self.btn_x_minus, 1, 0)
+        grid.addWidget(self.btn_home_xy, 1, 1)
+        grid.addWidget(self.btn_x_plus, 1, 2)
+        grid.addWidget(self.btn_y_minus, 2, 1)
+        pad_row.addLayout(grid, 1)
+
+        divider = QFrame()
+        divider.setFixedWidth(1)
+        divider.setStyleSheet("background:%s;" % C_BORDER)
+        pad_row.addWidget(divider)
+
+        # columna Z
+        zcol = QVBoxLayout()
+        zcol.setSpacing(6)
+        self.btn_z_plus = _jog("Z+", "Incrementar posición Z.  [W]")
+        self.btn_home_z = _jog("Hz", "Mandar a home al motor Z.", "home")
+        self.btn_z_minus = _jog("Z−", "Reducir posición Z.  [S]")
+        for b in (self.btn_z_plus, self.btn_home_z, self.btn_z_minus):
+            b.setFixedWidth(104)
+            zcol.addWidget(b)
+        pad_row.addLayout(zcol)
+
+        card_jog.body.addLayout(pad_row)
+        col.addWidget(card_jog)
+
+        # atajos visibles
+        self.kbd_hints = [
+            _shortcut(self.btn_y_plus, "↑"), _shortcut(self.btn_y_minus, "↓"),
+            _shortcut(self.btn_x_plus, "→"), _shortcut(self.btn_x_minus, "←"),
+            _shortcut(self.btn_z_plus, "W"), _shortcut(self.btn_z_minus, "S"),
+        ]
+
+        # -- velocidad --
+        self.lbl_speed_val = QLabel("50%")
+        self.lbl_speed_val.setStyleSheet(
+            "color:#4fc0ff;font-family:'IBM Plex Mono';font-size:14px;")
+        card_speed = SectionCard("Velocidad", right_widget=self.lbl_speed_val)
+
+        self.slider_speed = QSlider(Qt.Horizontal)
+        self.slider_speed.setRange(10, 100)
+        self.slider_speed.setValue(50)
+        self.slider_speed.setTickPosition(QSlider.NoTicks)
+        card_speed.body.addWidget(self.slider_speed)
+
+        ends = QHBoxLayout()
+        for txt, align in (("10%", Qt.AlignLeft), ("100%", Qt.AlignRight)):
+            l = QLabel(txt)
+            l.setAlignment(align | Qt.AlignVCenter)
+            l.setStyleSheet(
+                "color:#5e6871;font-family:'IBM Plex Mono';font-size:12px;")
+            ends.addWidget(l, 1)
+        card_speed.body.addLayout(ends)
+        col.addWidget(card_speed)
+
+        # -- garra --
+        card_grip = SectionCard("Garra")
+        grip_row = QHBoxLayout()
+        grip_row.setSpacing(7)
+        self.btn_open_grip = QPushButton("  Abrir")
+        self.btn_open_grip.setToolTip("Abrir garra según ángulo seteado.")
+        self.btn_close_grip = QPushButton("  Cerrar")
+        self.btn_close_grip.setToolTip("Cerrar garra según ángulo seteado.")
+        for b in (self.btn_open_grip, self.btn_close_grip):
+            b.setMinimumHeight(46)
+            grip_row.addWidget(b)
+        card_grip.body.addLayout(grip_row)
+        col.addWidget(card_grip)
+
+        col.addStretch()
+        left = QWidget()
+        left.setFixedWidth(392)
+        left.setLayout(col)
+        root.addWidget(left)
+
+        # ══════════ DERECHA: RUTINA ══════════
+        card_list = SectionCard("Rutina actual")
+        self.lbl_count = QLabel("0 puntos")
+        self.lbl_count.setProperty("role", "chip")
+        card_list.add_header_widget(self.lbl_count)
+
+        self.table_points = QTableWidget()
+        self.table_points.setColumnCount(7)
+        self.table_points.setHorizontalHeaderLabels(
+            ["#", "NOMBRE", "X", "Y", "Z", "GARRA", "VEL %"])
+        self.table_points.setAlternatingRowColors(True)
+        self.table_points.setShowGrid(False)
+        self.table_points.verticalHeader().setVisible(False)
+        self.table_points.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table_points.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table_points.setItemDelegate(PointDelegate(self.table_points))
+        hh = self.table_points.horizontalHeader()
+        hh.setSectionResizeMode(QHeaderView.Stretch)
+        hh.setSectionResizeMode(COL_NUM, QHeaderView.Fixed)
+        hh.setSectionResizeMode(COL_NAME, QHeaderView.Stretch)
+        self.table_points.setColumnWidth(COL_NUM, 56)
+        self.table_points.verticalHeader().setDefaultSectionSize(46)
+        card_list.body.addWidget(self.table_points)
+
+        # DOS filas de acciones. Con los seis botones en una sola, a 1280px de
+        # ancho (el mínimo de la ventana) Qt recortaba los rótulos a "Captu",
+        # "Borr", "Limp"… En dos filas entran los textos completos.
+        #   · fila 1 — editar la lista: capturar, borrar y reordenar
+        #   · fila 2 — acciones sobre la rutina entera: limpiar y exportar
+        self.btn_add_point = QPushButton("  Capturar punto")
+        self.btn_add_point.setProperty("variant", "primary")
+        self.btn_add_point.setToolTip("Agregar la posición actual a la rutina.")
+        self.btn_del_point = QPushButton("  Borrar")
+        self.btn_del_point.setToolTip("Borrar la fila seleccionada.")
+        # Reordenar: el orden de la tabla es el orden de ejecución, así que un
+        # punto capturado fuera de lugar obligaba a borrarlo y volver a llevar el
+        # brazo hasta esa posición para recapturarlo.
+        self.btn_move_up = QPushButton("▲ Subir")
+        self.btn_move_up.setToolTip("Adelantar el punto seleccionado un lugar.")
+        self.btn_move_down = QPushButton("▼ Bajar")
+        self.btn_move_down.setToolTip("Atrasar el punto seleccionado un lugar.")
+        for b in (self.btn_move_up, self.btn_move_down):
+            b.setEnabled(False)     # sin fila seleccionada no hay nada que mover
+        self.btn_clear_all = QPushButton("  Limpiar todo")
+        self.btn_clear_all.setProperty("variant", "danger")
+        self.btn_clear_all.setToolTip("Borrar todas las posiciones de la rutina.")
+        self.btn_save_file = QPushButton("  Guardar rutina JSON")
+        self.btn_save_file.setProperty("variant", "success")
+        self.btn_save_file.setToolTip("Exportar la rutina a un archivo .json.")
+
+        fila_edicion = QHBoxLayout()
+        fila_edicion.setSpacing(7)
+        # "Capturar punto" es la acción principal y además la de rótulo más
+        # largo: se lleva más ancho que las otras tres.
+        for b, peso in ((self.btn_add_point, 3), (self.btn_del_point, 2),
+                        (self.btn_move_up, 2), (self.btn_move_down, 2)):
+            b.setProperty("role", "compact")
+            b.setMinimumHeight(40)
+            fila_edicion.addWidget(b, peso)
+        card_list.body.addLayout(fila_edicion)
+
+        fila_rutina = QHBoxLayout()
+        fila_rutina.setSpacing(7)
+        for b in (self.btn_clear_all, self.btn_save_file):
+            b.setMinimumHeight(40)
+        fila_rutina.addWidget(self.btn_clear_all)
+        fila_rutina.addStretch()
+        fila_rutina.addWidget(self.btn_save_file)
+        card_list.body.addLayout(fila_rutina)
+
+        root.addWidget(card_list, 1)

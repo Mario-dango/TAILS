@@ -25,8 +25,10 @@ Pruebas ultrarrápidas de lógica pura (Backend). No levantan ventanas gráficas
 
 ### 2. Pruebas de Interfaz Automatizadas (`/ui`)
 Pruebas visuales y de integración. Instancian la Ventana Principal y simulan a un usuario operando el software.
-* **`test_learning_tab.py`**: Verifica que los botones de la pestaña "Aprendizaje" (como Guardar Punto o Limpiar Todo) interactúen correctamente con la tabla de memoria (`QTableWidget`).
+* **`test_learning_tab.py`**: Verifica que los botones de la pestaña "Aprendizaje" (como Guardar Punto o Limpiar Todo) interactúen correctamente con la tabla de memoria (`QTableWidget`), y que el **reordenamiento** de puntos (Subir / Bajar) mueva la fila, arrastre la selección, renumere la columna `#` y reindexe el mapa de "último valor válido" —que antes quedaba desfasado tras un borrado y podía restaurar el dato de otra fila—.
 * **`test_execution.py`**: Valida el metrónomo automático (`QTimer`). Asegura que al presionar Play, la interfaz pase a estado de ejecución, y que el botón Stop detenga los temporizadores de manera segura para evitar fugas de memoria.
+* **`test_telemetria.py`**: Cubre los tres defectos detectados sobre hardware real. (1) Los **LEDs de fines de carrera** se encienden al tocar cada final durante el homing y quedan retenidos ~0,7 s, porque el sensor se pisa unos milisegundos y sin retén el LED se prendía y apagaba entre dos refrescos sin que nadie lo viera. (2) Los badges **WAIT** y **FINISH** destellan: WAIT late mientras dura el movimiento y FINISH hace una ráfaga al terminarlo, sea un jog, un home o una rutina. (3) El **jogging y la ejecución respetan los topes articulares** (X=580, Y=130, Z=60) y recortan un JSON editado a mano. Incluye además la trama `STATUS|Homing...|M:1`, que no trae coordenadas y antes reventaba el parser sin dejar rastro.
+* **`test_view_facade.py`**: Fija el **contrato entre la Vista y el Controlador**. Recorre todos los widgets que `/controller` usa por nombre y falla si alguno desaparece, además de verificar el orden de columnas de la tabla de puntos y la sincronía de los dos toggles de Modo Kawaii. Nació de una regresión real: un rediseño de la capa `/view` dejó afuera el menú Herramientas y la app moría con `AttributeError` antes de abrir la ventana.
 
 ### 3. Emulación de Hardware (`/mocks`)
 Herramientas para pruebas **Manuales y Exploratorias**.

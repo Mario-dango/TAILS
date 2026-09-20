@@ -6,6 +6,16 @@ control de la garra, velocidad y parada de emergencia.
 
 from PyQt5.QtWidgets import QMessageBox
 
+# Recorrido real de cada eje, en pasos. Es la misma fuente de verdad que usa la
+# validación de la tabla de rutina y el visualizador del panel izquierdo.
+from view.ui_widgets import RANGO_X, RANGO_Y, RANGO_Z
+
+# Tope de cada eje para el jogging. El final de carrera sólo protege el extremo
+# de HOME: del otro lado no había nada, ni acá ni en el firmware, y el brazo
+# seguía de largo pasándose de X=580 / Y=130 / Z=60.
+TOPES_EJE = {'x': RANGO_X, 'y': RANGO_Y, 'z': RANGO_Z}
+
+
 class MovementManager:
     def __init__(self, main_controller):
         self.app = main_controller
@@ -76,16 +86,24 @@ class MovementManager:
             self.log("ERROR", "Conecta el robot primero.")
             return
 
-        # 1. Obtener incremento seleccionado en la UI (1°, 10°, 50°)
-        step_deg = self.view.step_group.checkedId()
-        
+        # 1. Obtener incremento seleccionado en la UI (1, 10 o 50 PASOS)
+        step_pasos = self.view.step_group.checkedId()
+
         # 2. Calcular nueva posición basada en la memoria global del Jefe
         current_val = self.app.current_pos[axis]
-        new_val = current_val + (step_deg * direction)
-        
-        # (Opcional) Limitar rangos básicos para no romper la lógica visual
-        if new_val < 0: new_val = 0
-        
+        tope = TOPES_EJE[axis]
+        new_val = current_val + (step_pasos * direction)
+
+        # LÍMITES ARTICULARES: acotamos a [0, tope]. Si ya estábamos en el
+        # extremo no reenviamos el mismo comando —sólo avisamos—: repetir un
+        # destino ya alcanzado no mueve nada y ensucia la consola.
+        new_val = max(0, min(tope, new_val))
+        if new_val == current_val:
+            extremo = "tope" if direction > 0 else "cero"
+            self.log("WARN", "Eje %s ya está en su %s (%d pasos)."
+                     % (axis.upper(), extremo, current_val))
+            return
+
         # 3. Actualizar registro interno global
         self.app.current_pos[axis] = new_val
         

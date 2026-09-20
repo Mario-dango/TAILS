@@ -1,0 +1,7 @@
+# Interfaz T.A.I.L.S. — instalar con:  pip install -r requirements.txt
+PyQt5>=5.15
+pyserial>=3.5
+
+# Suite de pruebas (python -m pytest)
+pytest>=7.0
+pytest-qt>=4.2
