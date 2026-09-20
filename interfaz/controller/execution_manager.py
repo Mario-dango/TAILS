@@ -10,8 +10,16 @@ from PyQt5.QtWidgets import QMessageBox, QFileDialog
 # Recorrido real de cada eje, en pasos. Única fuente de verdad del proyecto
 # (la misma que valida la tabla de la pestaña Aprendizaje).
 from view.ui_widgets import RANGO_X, RANGO_Y, RANGO_Z
+# Tope de la espera por paso: lo define la tabla de la pestaña Aprendizaje, que
+# es donde se carga. Acá sólo se respeta.
+from view.tab_teaching import ESPERA_MAXIMA_S
 
 TOPES = {'x': RANGO_X, 'y': RANGO_Y, 'z': RANGO_Z}
+
+# Tiempo que la interfaz le da al robot para completar un paso antes de mandar el
+# siguiente. Es el piso del metrónomo: la espera que el operador cargue en cada
+# paso (clave "t" del JSON, columna "ESPERA s") se SUMA a este intervalo.
+INTERVALO_BASE_MS = 1500
 
 
 def acotar_eje(eje, valor):
@@ -45,7 +53,13 @@ class ExecutionManager:
         # El Metrónomo: Timer que dicta cada cuánto tiempo se envía el siguiente
         # paso. Parentado a la vista para que muera con la ventana (ver nota en
         # main_controller sobre los timers huérfanos).
+        #
+        # Es de UN SOLO DISPARO y se reprograma después de cada paso: el
+        # intervalo ya no es fijo, porque cada paso puede pedir su propia espera
+        # (INTERVALO_BASE_MS + la espera del paso). Con un timer repetitivo no
+        # había forma de que una pausa valiera distinto en un paso que en otro.
         self.run_timer = QTimer(self.view)
+        self.run_timer.setSingleShot(True)
         self.run_timer.timeout.connect(self.execute_next_step)
 
         self.init_connections()
@@ -109,6 +123,10 @@ class ExecutionManager:
         if 'g' in step:
             coords += " · garra %s" % ("CERRAR" if step['g'] == 'C' else "ABRIR")
 
+        espera = self.espera_de_paso(step)
+        if espera > 0:
+            coords += " · espera %g s" % espera
+
         nombre = self.nombre_de_paso(step)
         etiqueta = "Paso %d" % (indice + 1)
         if nombre:
@@ -122,6 +140,23 @@ class ExecutionManager:
             return max(10, min(100, int(step.get('v', 50))))
         except (TypeError, ValueError):
             return 50
+
+    @staticmethod
+    def espera_de_paso(step):
+        """Pausa posterior al paso, en segundos (0 por defecto).
+
+        Compatibilidad: las rutinas guardadas antes de que existiera la columna
+        'ESPERA s' no traen la clave 't', y para ellas la espera es 0 — o sea, el
+        comportamiento de siempre.
+        """
+        try:
+            return max(0.0, min(ESPERA_MAXIMA_S, float(step.get('t', 0))))
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _programar_siguiente(self, espera_s=0.0):
+        """Agenda el próximo paso: intervalo base + la espera del paso enviado."""
+        self.run_timer.start(INTERVALO_BASE_MS + int(round(espera_s * 1000)))
 
     # --- FUNCIONES HELPER ---
     def send_cmd(self, cmd):
@@ -231,9 +266,9 @@ class ExecutionManager:
         else:
             self.view.txt_run_log.append("<b>--- REANUDANDO EJECUCIÓN ---</b>")
 
-        # Inicia el metrónomo (1500 ms = 1.5 segundos entre comandos)
-        self.run_timer.start(1500)
-        self.execute_next_step() # Ejecutamos el primer paso inmediatamente
+        # El primer paso sale ya mismo; execute_next_step() agenda el siguiente
+        # con el intervalo que corresponda (base + espera del paso enviado).
+        self.execute_next_step()
 
     def pause_execution(self):
         """Pausa el temporizador, manteniendo el índice donde se quedó"""
@@ -351,6 +386,14 @@ class ExecutionManager:
             self.view.progress_bar.setValue(prog)
             self.view.tab_run.lbl_progress_pct.setText(f"{prog}%")
 
+            # El próximo paso se agenda recién ahora: el metrónomo es de un solo
+            # disparo porque el intervalo depende de la espera de ESTE paso.
+            espera = self.espera_de_paso(step)
+            if espera > 0:
+                self.view.txt_run_log.append(
+                    f'<span style="color:#f2b13c;">    espera {espera:g} s…</span>')
+            self._programar_siguiente(espera)
+
         else:
             # --- FIN DE UNA PASADA ---
             self.cycles_done += 1
@@ -366,6 +409,7 @@ class ExecutionManager:
                 etiqueta = (f"CICLO {self.cycles_done + 1}" if self.loop_forever
                             else f"CICLO {self.cycles_done + 1}/{self.cycles_target}")
                 self.view.txt_run_log.append(f"<b>--- {etiqueta} ---</b>")
+                self._programar_siguiente()
                 return
 
             # --- FIN DE LA RUTINA ---

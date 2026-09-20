@@ -65,15 +65,16 @@ def test_la_vista_expone_el_widget(view, nombre):
 def test_la_tabla_de_puntos_tiene_las_columnas_esperadas(view):
     """Los índices COL_* de learning_manager dependen de este orden exacto."""
     from controller.learning_manager import (COL_NUM, COL_NAME, COL_X, COL_Y,
-                                             COL_Z, COL_G, COL_V)
+                                             COL_Z, COL_G, COL_V, COL_T)
 
     tabla = view.table_points
-    assert tabla.columnCount() == 7
+    assert tabla.columnCount() == 8
     encabezados = [tabla.horizontalHeaderItem(i).text()
                    for i in range(tabla.columnCount())]
-    assert encabezados == ["#", "NOMBRE", "X", "Y", "Z", "GARRA", "VEL %"]
+    assert encabezados == ["#", "NOMBRE", "X", "Y", "Z", "GARRA", "VEL %",
+                           "ESPERA s"]
     assert (COL_NUM, COL_NAME, COL_X, COL_Y, COL_Z,
-            COL_G, COL_V) == (0, 1, 2, 3, 4, 5, 6)
+            COL_G, COL_V, COL_T) == (0, 1, 2, 3, 4, 5, 6, 7)
 
 
 def test_los_rangos_de_celda_salen_del_recorrido_real(view):
@@ -85,6 +86,23 @@ def test_los_rangos_de_celda_salen_del_recorrido_real(view):
     assert RANGOS_CELDA[COL_Y][1:] == (0, RANGO_Y)
     assert RANGOS_CELDA[COL_Z][1:] == (0, RANGO_Z)
     assert RANGOS_CELDA[COL_V][1:] == (10, 100)
+
+
+def test_la_espera_por_paso_se_edita_con_decimales(view):
+    """La espera se carga en segundos: 0.5 s tiene que ser un valor posible."""
+    from PyQt5.QtWidgets import QDoubleSpinBox
+    from view.tab_teaching import COL_T, RANGOS_DECIMALES, ESPERA_MAXIMA_S
+
+    assert RANGOS_DECIMALES[COL_T][1:] == (0.0, ESPERA_MAXIMA_S)
+
+    tabla = view.table_points
+    tabla.setRowCount(1)
+    editor = tabla.itemDelegate().createEditor(
+        tabla, None, tabla.model().index(0, COL_T))
+    assert isinstance(editor, QDoubleSpinBox), (
+        "La espera necesita decimales: con un QSpinBox entero no se puede "
+        "cargar medio segundo.")
+    assert editor.maximum() == ESPERA_MAXIMA_S
 
 
 def test_los_dos_controles_de_kawaii_quedan_sincronizados(view):

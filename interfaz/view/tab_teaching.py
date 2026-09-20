@@ -8,8 +8,11 @@ Cambios respecto de la v1:
  · Incremento (1/10/50 pasos) pasa de tres radios sueltos a un segmented control
    dentro del encabezado de la tarjeta: una fila menos de alto.
  · Velocidad muestra el valor en grande y con rótulos de extremos.
- · La tabla de puntos gana columnas "#" y "NOMBRE", filas alternadas, y
-   validación por celda (PointDelegate) contra el recorrido real de cada eje.
+ · La tabla de puntos gana columnas "#", "NOMBRE" y "ESPERA s", filas
+   alternadas, y validación por celda (PointDelegate) contra el recorrido real
+   de cada eje. "ESPERA s" es la pausa (0-60 s) que el robot mantiene al
+   terminar ese paso antes de que la interfaz mande el siguiente; viaja al JSON
+   en la clave "t" y el gestor de ejecución la suma a su intervalo base.
  · Atajos de teclado visibles sobre cada botón (Kbd).
 
 Expone los mismos nombres que la v1 + step_group.
@@ -18,7 +21,8 @@ Expone los mismos nombres que la v1 + step_group.
 from PyQt5.QtWidgets import (QWidget, QFrame, QVBoxLayout, QHBoxLayout, QGridLayout,
                              QPushButton, QToolButton, QLabel, QSlider, QRadioButton,
                              QButtonGroup, QTableWidget, QHeaderView, QAbstractItemView,
-                             QStyledItemDelegate, QSpinBox, QComboBox, QLineEdit)
+                             QStyledItemDelegate, QSpinBox, QDoubleSpinBox,
+                             QComboBox, QLineEdit)
 from PyQt5.QtWidgets import QSizePolicy
 from PyQt5.QtCore import Qt
 from view.ui_widgets import SectionCard, Kbd, C_BORDER, RANGO_X, RANGO_Y, RANGO_Z
@@ -26,7 +30,7 @@ from view.ui_widgets import SectionCard, Kbd, C_BORDER, RANGO_X, RANGO_Y, RANGO_
 # Columnas de table_points. Mismo orden que los COL_* de
 # controller/learning_manager.py — si cambia acá, hay que cambiarlo allá
 # (tests/ui/test_view_facade.py verifica que coincidan).
-COL_NUM, COL_NAME, COL_X, COL_Y, COL_Z, COL_G, COL_V = range(7)
+COL_NUM, COL_NAME, COL_X, COL_Y, COL_Z, COL_G, COL_V, COL_T = range(8)
 
 # Rango admitido por celda. Los de los ejes salen de ui_widgets, que es la única
 # fuente de verdad del recorrido real del robot.
@@ -35,6 +39,18 @@ RANGOS_CELDA = {
     COL_Y: ("eje Y", 0, RANGO_Y),
     COL_Z: ("eje Z", 0, RANGO_Z),
     COL_V: ("la velocidad", 10, 100),
+}
+
+# Columnas con decimales. La espera es el tiempo que el robot se queda quieto
+# DESPUÉS de completar el paso, antes de que la interfaz mande el siguiente:
+# sirve para dejar asentar la pieza, esperar a que la garra termine de cerrar o
+# darle tiempo al operador a sacar la mano. Se guarda en segundos (clave "t" del
+# JSON) porque es la unidad en la que piensa quien opera el brazo.
+ESPERA_MAXIMA_S = 60.0
+ESPERA_DECIMALES = 1
+
+RANGOS_DECIMALES = {
+    COL_T: ("la espera", 0.0, ESPERA_MAXIMA_S),
 }
 
 
@@ -48,6 +64,14 @@ class PointDelegate(QStyledItemDelegate):
 
     def createEditor(self, parent, option, index):
         col = index.column()
+        if col in RANGOS_DECIMALES:
+            _, minimo, maximo = RANGOS_DECIMALES[col]
+            sb = QDoubleSpinBox(parent)
+            sb.setDecimals(ESPERA_DECIMALES)
+            sb.setRange(minimo, maximo)
+            sb.setSingleStep(0.5)
+            sb.setSuffix(" s")
+            return sb
         if col in RANGOS_CELDA:
             _, minimo, maximo = RANGOS_CELDA[col]
             sb = QSpinBox(parent)
@@ -68,7 +92,12 @@ class PointDelegate(QStyledItemDelegate):
 
     def setEditorData(self, editor, index):
         texto = (index.data() or "").strip()
-        if isinstance(editor, QSpinBox):
+        if isinstance(editor, QDoubleSpinBox):
+            try:
+                editor.setValue(float(texto.replace(",", ".")))
+            except ValueError:
+                editor.setValue(editor.minimum())
+        elif isinstance(editor, QSpinBox):
             try:
                 editor.setValue(int(texto))
             except ValueError:
@@ -80,7 +109,11 @@ class PointDelegate(QStyledItemDelegate):
             super().setEditorData(editor, index)
 
     def setModelData(self, editor, model, index):
-        if isinstance(editor, QSpinBox):
+        if isinstance(editor, QDoubleSpinBox):
+            editor.interpretText()
+            model.setData(index, "%.*f" % (ESPERA_DECIMALES, editor.value()),
+                          Qt.EditRole)
+        elif isinstance(editor, QSpinBox):
             editor.interpretText()
             model.setData(index, str(editor.value()), Qt.EditRole)
         elif isinstance(editor, QComboBox):
@@ -276,20 +309,27 @@ class TeachingTab(QWidget):
         card_list.add_header_widget(self.lbl_count)
 
         self.table_points = QTableWidget()
-        self.table_points.setColumnCount(7)
+        self.table_points.setColumnCount(8)
         self.table_points.setHorizontalHeaderLabels(
-            ["#", "NOMBRE", "X", "Y", "Z", "GARRA", "VEL %"])
+            ["#", "NOMBRE", "X", "Y", "Z", "GARRA", "VEL %", "ESPERA s"])
         self.table_points.setAlternatingRowColors(True)
         self.table_points.setShowGrid(False)
         self.table_points.verticalHeader().setVisible(False)
         self.table_points.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table_points.setSelectionMode(QAbstractItemView.SingleSelection)
         self.table_points.setItemDelegate(PointDelegate(self.table_points))
+        self.table_points.setToolTip(
+            "Doble clic en una celda para editarla. ESPERA s es la pausa del "
+            "robot al terminar ese paso, antes de arrancar el siguiente.")
         hh = self.table_points.horizontalHeader()
         hh.setSectionResizeMode(QHeaderView.Stretch)
         hh.setSectionResizeMode(COL_NUM, QHeaderView.Fixed)
         hh.setSectionResizeMode(COL_NAME, QHeaderView.Stretch)
+        # La espera lleva coma decimal y el rótulo más largo de la fila: con la
+        # columna en modo Stretch el encabezado salía recortado ("ESPER…").
+        hh.setSectionResizeMode(COL_T, QHeaderView.Fixed)
         self.table_points.setColumnWidth(COL_NUM, 56)
+        self.table_points.setColumnWidth(COL_T, 112)
         self.table_points.verticalHeader().setDefaultSectionSize(46)
         card_list.body.addWidget(self.table_points)
 

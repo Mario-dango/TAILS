@@ -125,26 +125,49 @@ class ExecutionTab(QWidget):
 
         # ══════════ SECUENCIA (nuevo) ══════════
         card_seq = SectionCard("Secuencia")
-        card_seq.setFixedWidth(316)
+        card_seq.setFixedWidth(340)
         self.list_steps = QListWidget()
         self.list_steps.setSelectionMode(QAbstractItemView.NoSelection)
+        # Sin barra horizontal: la tarjeta tiene ancho fijo y una línea larga
+        # sólo tiene que quedar prolija, no volverse desplazable.
+        self.list_steps.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.list_steps.setStyleSheet(
-            "QListWidget{background:transparent;border:0;}"
+            # El tamaño de fuente va también en el bloque del QListWidget: con
+            # la regla sólo en ::item, el estilo sigue midiendo las filas con la
+            # fuente heredada del QWidget global (18px) y la línea no entra.
+            "QListWidget{background:transparent;border:0;"
+            "font-family:'IBM Plex Mono';font-size:13px;}"
             "QListWidget::item{background:transparent;border:1px solid transparent;"
             "border-radius:7px;padding:8px 9px;margin-bottom:3px;color:#c7cfd4;"
-            "font-family:'IBM Plex Mono';font-size:14px;}"
+            # 13px: con 14 la línea de coordenadas más la espera no entraba en
+            # los 316px de la tarjeta y Qt la cortaba con puntos suspensivos.
+            "font-family:'IBM Plex Mono';font-size:13px;}"
             "QListWidget::item[current='true']{background:#0e2b38;border-color:#2a7fb8;}")
         card_seq.body.addWidget(self.list_steps)
         root.addWidget(card_seq)
 
     # ---------- API opcional para el controlador ----------
     def set_sequence(self, points):
-        """points: lista de dicts con x, y, z, g, v y, opcionalmente, n (nombre)."""
+        """points: lista de dicts con x, y, z, g, v y, opcionalmente, n y t.
+
+        't' es la espera en segundos posterior al paso. Se muestra porque cambia
+        el ritmo de la rutina: sin ella, dos secuencias idénticas en coordenadas
+        podían tardar cosas muy distintas y no había dónde verlo.
+        """
         self.list_steps.clear()
         for i, p in enumerate(points, start=1):
             garra = "ABR" if str(p.get("g", "")).upper().startswith("A") else "CER"
-            coords = "X%3s  Y%3s  Z%3s   %s   %s%%" % (
+            # Separadores de un espacio: con la espera agregada al final, el
+            # formato ancho de antes no entraba en los 316px de la tarjeta y la
+            # línea salía cortada por la derecha.
+            coords = "X%3s Y%3s Z%3s %s %s%%" % (
                 p.get("x", 0), p.get("y", 0), p.get("z", 0), garra, p.get("v", 50))
+            try:
+                espera = float(p.get("t", 0) or 0)
+            except (TypeError, ValueError):
+                espera = 0.0
+            if espera > 0:
+                coords += " +%gs" % espera
             # Si el punto tiene nombre, encabeza la línea: da contexto de un vistazo.
             nombre = str(p.get("n", "")).strip()
             txt = ("%02d  %s\n      %s" % (i, nombre, coords) if nombre

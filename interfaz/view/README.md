@@ -49,8 +49,13 @@ Franja roja bajo el app bar para condiciones de bloqueo (parada de emergencia). 
 ## 🧩 4. `ui_widgets.py` (Widgets Auxiliares) — *nuevo en v2*
 Piezas visuales reutilizables, dibujadas con `QPainter`. Ninguna depende del controlador.
 * `SectionCard`: tarjeta con encabezado en versalitas (reemplaza al `QGroupBox` de título flotante, que comía ~20px por grupo).
-* `ArmPreview`: vista superior polar del brazo, en pasos.
-* `ZGauge`: barra vertical con la altura del eje Z, en pasos.
+* `ArmPreview`: vista superior polar del brazo, en pasos. El semidisco se **centra** en el alto disponible y el visor tiene tope (`ALTO_MAXIMO`): su radio lo limita el ancho fijo del rail, así que sin tope el dibujo quedaba chico dentro de un marco enorme al cerrar la terminal.
+* `ZGauge`: barra vertical con la altura del eje Z, en pasos. Comparte mínimo y tope con `ArmPreview` para que los dos visores queden parejos.
+
+> Los rótulos de los dos visores se dibujan a mano: la banda de cada uno sale de la
+> **métrica de la fuente** (no de un alto fijo) y la fuente se achica sola si el texto no
+> entra. Con los rectángulos fijos de antes, las coordenadas se recortaban en cuanto la
+> pantalla tenía escala mayor al 100 %.
 * `GripRange`: recorrido de la garra entre el ángulo cerrado y el abierto (**en grados**, que es como trabaja el servo).
 * `Kbd`: etiqueta tipo tecla para los atajos de jogging.
 
@@ -69,6 +74,7 @@ Barra lateral izquierda con el estado crítico del hardware en tiempo real.
 * **Vista del brazo:** `ArmPreview` + `ZGauge`, refrescados con `update_preview(x, y, z)`.
 * **Finales de carrera y Sistema:** comparten una fila para eliminar el hueco vertical muerto. Los LEDs se colorean vía `objectName` (`sensor_led_on/off`) y los badges vía la property `class`.
 * **STOP Emergencia:** anclado abajo, siempre visible. Debajo, el botón **Rearmar**.
+* **Reparto del alto:** las tarjetas viven en un `QScrollArea` y el STOP queda afuera. `_repartir_alto_libre()` le da al botón el alto que sobra **después** de las tarjetas (hasta `ESTOP_ALTO_MAXIMO`): al cerrar la terminal el rail gana ~200px y, como los visores tienen tope, ese espacio iba a parar a un bloque de fondo vacío. Se calcula a mano en vez de con un stretch porque el orden de prioridad importa: primero las tarjetas, el resto para el STOP.
 
 ---
 
@@ -99,7 +105,8 @@ Interfaz dividida para el control manual y la grabación de puntos.
   * Cruz X/Y y columna Z en bloques separados por un divisor real, con el atajo de teclado impreso en cada botón.
   * Slider de velocidad (10-100%) y selector de incremento.
 * **Columna Derecha (Rutina):**
-  * `QTableWidget` de **6 columnas: `["#", "X", "Y", "Z", "GARRA", "VEL %"]`**, con filas alternadas y ancho fijo para la columna de índice.
+  * `QTableWidget` de **8 columnas: `["#", "NOMBRE", "X", "Y", "Z", "GARRA", "VEL %", "ESPERA s"]`**, con filas alternadas y ancho fijo para las columnas de índice y espera.
+  * **ESPERA s** es la pausa (en segundos, 0–60) que el robot mantiene al terminar ese paso, antes de que la interfaz mande el siguiente. Se edita con un `QDoubleSpinBox` y viaja al JSON en la clave `"t"`.
   * ⚠️ Los índices de esas columnas están nombrados en `controller/learning_manager.py` (`COL_NUM`, `COL_X`, …). Si se cambia el orden acá, hay que actualizarlos allá — `tests/ui/test_view_facade.py` verifica que coincidan.
   * Botones CRUD: Capturar punto, Borrar seleccionado, Limpiar todo y Guardar JSON.
 

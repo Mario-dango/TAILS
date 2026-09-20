@@ -393,7 +393,7 @@ QLabel[class="status_badge_off"] {
     color: #5e6871;
     border: 1px solid #262c32;
     border-radius: 5px;
-    padding: 8px 12px;
+    padding: 6px 12px;
     font-family: 'IBM Plex Mono', Consolas, monospace;
     font-size: 13px;
     font-weight: 700;
@@ -402,21 +402,21 @@ QLabel[class="status_badge_off"] {
 }
 QLabel[class="status_badge_home_on"] {
     background-color: #12301f; color: #8fe0ab; border: 1px solid #2c6b45;
-    border-radius: 5px; padding: 8px 12px;
+    border-radius: 5px; padding: 6px 12px;
     font-family: 'IBM Plex Mono', Consolas, monospace;
     font-size: 13px; font-weight: 700; letter-spacing: 1px;
     qproperty-alignment: 'AlignLeft|AlignVCenter';
 }
 QLabel[class="status_badge_wait_on"] {
     background-color: #2f2a16; color: #f5d98a; border: 1px solid #8a6d1f;
-    border-radius: 5px; padding: 8px 12px;
+    border-radius: 5px; padding: 6px 12px;
     font-family: 'IBM Plex Mono', Consolas, monospace;
     font-size: 13px; font-weight: 700; letter-spacing: 1px;
     qproperty-alignment: 'AlignLeft|AlignVCenter';
 }
 QLabel[class="status_badge_finish_on"] {
     background-color: #0e2b38; color: #a5dcf7; border: 1px solid #2a7fb8;
-    border-radius: 5px; padding: 8px 12px;
+    border-radius: 5px; padding: 6px 12px;
     font-family: 'IBM Plex Mono', Consolas, monospace;
     font-size: 13px; font-weight: 700; letter-spacing: 1px;
     qproperty-alignment: 'AlignLeft|AlignVCenter';
@@ -427,10 +427,14 @@ QLabel[role="section"] {
     color: #79838d; font-size: 13px; font-weight: 600; letter-spacing: 1.4px;
 }
 QLabel[role="hint"] { color: #79838d; font-size: 15px; }
+/* Lectura de eje del rail izquierdo (left_panel.AxisReadout). 20px y no 26:
+   con 26px las cifras no entraban en el alto de la fila y se veían recortadas
+   por arriba y por abajo, sobre todo con la escala de pantalla en 125 %. */
 QLabel[role="value"] {
     color: #e6e9ec;
     font-family: 'IBM Plex Mono', Consolas, monospace;
-    font-size: 26px;
+    font-size: 20px;
+    font-weight: 600;
 }
 QLabel[role="axis_x"] { color: #e05c68; font-weight: 700; font-size: 15px; }
 QLabel[role="axis_y"] { color: #5fbf7e; font-weight: 700; font-size: 15px; }

@@ -82,3 +82,51 @@ def test_stop_button(qtbot):
     assert controller.execution_mgr.is_executing is False
     assert controller.execution_mgr.execution_index == 0
     assert controller.view.progress_bar.value() == 0
+
+def test_la_espera_del_paso_alarga_el_metronomo(qtbot):
+    """Cada paso puede pedir su propia pausa: el timer se reprograma con ella.
+
+    El metrónomo era un QTimer repetitivo de 1500 ms fijos, así que no había
+    forma de que un paso esperara más que otro. Ahora es de un solo disparo y se
+    agenda con INTERVALO_BASE_MS + la espera del paso recién enviado.
+    """
+    from controller.execution_manager import INTERVALO_BASE_MS
+
+    controller = MainController()
+    qtbot.addWidget(controller.view)
+    controller.model.is_connected = lambda: True
+    controller.connection_mgr.update_ui_connection_state(True)
+    controller.connection_mgr.send_command = MagicMock()
+
+    gestor = controller.execution_mgr
+    gestor.loaded_routine = [
+        {'type': 'MOV', 'x': 10, 'y': 10, 'z': 10, 't': 2},   # 2 s de espera
+        {'type': 'MOV', 'x': 20, 'y': 20, 'z': 20},           # sin clave 't'
+    ]
+    gestor.is_executing = True
+
+    gestor.execute_next_step()
+    assert gestor.run_timer.isSingleShot(), (
+        "El metrónomo se reprograma paso a paso: no puede ser repetitivo.")
+    assert gestor.run_timer.interval() == INTERVALO_BASE_MS + 2000
+
+    gestor.execute_next_step()
+    assert gestor.run_timer.interval() == INTERVALO_BASE_MS, (
+        "Una rutina vieja (sin 't') conserva el ritmo de siempre.")
+
+    gestor.run_timer.stop()
+
+
+def test_la_espera_aparece_en_la_descripcion_del_paso(qtbot):
+    """El log y el panel Secuencia tienen que mostrar la pausa cargada."""
+    controller = MainController()
+    qtbot.addWidget(controller.view)
+    gestor = controller.execution_mgr
+
+    paso = {'type': 'MOV', 'x': 1, 'y': 2, 'z': 3, 'v': 50, 't': 1.5}
+    assert "espera 1.5 s" in gestor.describir_paso(0, paso)
+    assert "espera" not in gestor.describir_paso(0, {'type': 'MOV', 'x': 1,
+                                                    'y': 2, 'z': 3})
+
+    controller.view.tab_run.set_sequence([paso])
+    assert "+1.5s" in controller.view.tab_run.list_steps.item(0).text()

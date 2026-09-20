@@ -49,6 +49,12 @@ Las constantes `RANGO_X / RANGO_Y / RANGO_Z` de [`view/ui_widgets.py`](view/ui_w
 
 Son la primera de dos barreras. La segunda vive en el firmware (`MAX_POS_X / _Y / _Z` en `Core/Inc/robot_defines.h`), que recorta el destino y frena el motor por hardware aunque el comando llegue escrito a mano por la terminal. **Los dos juegos de valores tienen que coincidir**: si se cambia el recorrido de un eje, hay que tocar ambos y reflashear la placa.
 
+## ⏱️ Ritmo de ejecución
+
+La interfaz manda un paso cada **1500 ms** (`INTERVALO_BASE_MS` en [`controller/execution_manager.py`](controller/execution_manager.py)): es el tiempo que le da al brazo para completar el movimiento antes de mandar el siguiente.
+
+A ese piso se le **suma la espera propia de cada paso** — la columna `ESPERA s` de la pestaña Aprendizaje, que se guarda en la clave `"t"` del JSON. Sirve para dejar asentar una pieza, darle tiempo a la garra a terminar de cerrar o parar la secuencia mientras el operador acomoda algo. El metrónomo es un `QTimer` de un solo disparo que se reprograma después de cada paso, así que cada pausa puede valer distinto.
+
 ## 🧪 Pruebas
 
 ```bash

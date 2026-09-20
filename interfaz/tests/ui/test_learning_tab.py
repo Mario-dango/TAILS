@@ -4,7 +4,7 @@ TEST UI LEARNING - Pruebas visuales automatizadas sobre la pestaña de Aprendiza
 import pytest
 from PyQt5.QtCore import Qt
 from controller.main_controller import MainController
-from controller.learning_manager import COL_NUM, COL_NAME, COL_X, COL_G
+from controller.learning_manager import COL_NUM, COL_NAME, COL_X, COL_G, COL_T
 
 def test_add_point_to_table(qtbot, qapp, tmp_path):
     """
@@ -174,3 +174,66 @@ def test_borrar_una_fila_reindexa_los_valores_previos(qtbot):
     assert previos[(0, COL_X)] == "20", (
         "Tras borrar la fila 0, la clave (0, X) debe apuntar al punto que quedó.")
     assert (1, COL_X) not in previos, "No deben quedar claves de filas inexistentes."
+
+
+def test_la_espera_por_paso_se_guarda_en_el_json(qtbot, monkeypatch):
+    """La pausa de cada paso viaja al archivo en la clave 't', en segundos.
+
+    Es el dato que permite que la rutina espere a que la garra termine de cerrar
+    o a que la pieza se asiente antes de seguir: si no llega al JSON, la
+    ejecución vuelve al ritmo fijo de siempre.
+    """
+    controller = MainController()
+    qtbot.addWidget(controller.view)
+    controller.model.is_connected = lambda: True
+    controller.connection_mgr.update_ui_connection_state(True)
+
+    _capturar(controller, qtbot, 10, 20, 30, nombre="tomar")
+    _capturar(controller, qtbot, 40, 50, 60)
+
+    tabla = controller.view.table_points
+    # El paso nace sin espera y se carga a mano, como lo haría el operador.
+    assert tabla.item(0, COL_T).text() == "0.0"
+    tabla.item(0, COL_T).setText("2,5")     # con coma: se normaliza a 2.5
+
+    guardado = {}
+    monkeypatch.setattr(
+        "controller.learning_manager.QFileDialog.getSaveFileName",
+        lambda *a, **k: ("rutina_test.json", ""))
+    monkeypatch.setattr(
+        controller.model, "save_routine_to_file",
+        lambda ruta, datos: guardado.update(ruta=ruta, datos=datos) or True)
+
+    qtbot.mouseClick(controller.view.btn_save_file, Qt.LeftButton)
+
+    pasos = guardado["datos"]
+    assert pasos[0]["t"] == 2.5, "El primer paso tiene que llevar su espera."
+    assert "t" not in pasos[1], (
+        "Sin espera no se escribe la clave: un 't': 0 en cada paso sólo "
+        "ensucia el archivo.")
+
+
+def test_una_espera_fuera_de_rango_se_revierte(qtbot, monkeypatch):
+    """La celda de espera tiene tope (ESPERA_MAXIMA_S): más que eso se rechaza."""
+    from PyQt5.QtWidgets import QMessageBox
+    from view.tab_teaching import ESPERA_MAXIMA_S
+
+    controller = MainController()
+    qtbot.addWidget(controller.view)
+    controller.model.is_connected = lambda: True
+    controller.connection_mgr.update_ui_connection_state(True)
+
+    avisos = []
+    monkeypatch.setattr(QMessageBox, "warning",
+                        lambda *a, **k: avisos.append(a) or QMessageBox.Ok)
+
+    _capturar(controller, qtbot, 10, 20, 30)
+    tabla = controller.view.table_points
+
+    tabla.item(0, COL_T).setText("1.5")
+    assert tabla.item(0, COL_T).text() == "1.5"
+
+    tabla.item(0, COL_T).setText(str(ESPERA_MAXIMA_S + 10))
+    assert tabla.item(0, COL_T).text() == "1.5", (
+        "Una espera fuera de rango vuelve al último valor válido.")
+    assert avisos, "Y se le avisa al operador por qué no se tomó el valor."

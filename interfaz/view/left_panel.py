@@ -32,7 +32,12 @@ class AxisReadout(QFrame):
 
     def __init__(self, axis, color):
         super().__init__()
-        self.setFixedHeight(38)
+        # El número se dibuja con la fuente mono de role="value". Con el 26px
+        # que tenía la hoja de estilos las cifras no entraban en la caja y se
+        # cortaban por arriba y por abajo (peor todavía con la escala de
+        # pantalla en 125 %). La fuente bajó a 20px en style.css y la caja subió
+        # de 38 a 40: el número entra con aire y el rail sigue entrando entero.
+        self.setFixedHeight(40)
         # OJO: el selector va acotado con #axis_readout. Un "QFrame{...}" pelado
         # alcanza también a los QLabel hijos (QLabel hereda de QFrame), y cada uno
         # dibujaba su propio marco redondeado: eran los "corchetes" de colores.
@@ -77,7 +82,10 @@ class AxisReadout(QFrame):
 def _led(letter):
     l = QLabel(letter)
     l.setAlignment(Qt.AlignCenter)
-    l.setFixedSize(28, 28)
+    # 30 y no 28: style.css fija el LED en 30x30 (min/max-width y -height). Con
+    # 28 el widget quedaba más chico que su propio estilo y la letra del eje se
+    # dibujaba contra el borde.
+    l.setFixedSize(30, 30)
     l.setObjectName("sensor_led_off")
     return l
 
@@ -92,6 +100,11 @@ class LeftPanel(QWidget):
     pantalla, que es justo lo que no puede pasar. Ahora scrollean las tarjetas
     informativas y el STOP queda anclado abajo pase lo que pase.
     """
+
+    # Alto del botón de parada: el mínimo de siempre y el tope al que puede
+    # crecer cuando el rail tiene espacio de sobra (ver _repartir_alto_libre).
+    ESTOP_ALTO_MINIMO = 68
+    ESTOP_ALTO_MAXIMO = 176
 
     def __init__(self):
         super().__init__()
@@ -131,14 +144,17 @@ class LeftPanel(QWidget):
         preview_row.addWidget(self.arm_preview, 1)
         preview_row.addWidget(self.z_gauge)
         card_pos.body.addSpacing(4)
-        # Stretch 1: sin él la fila de visores recibe sólo su alto mínimo y todo
-        # el espacio libre del rail se lo lleva el addStretch() de más abajo.
-        card_pos.body.addLayout(preview_row, 1)
+        # SIN stretch, a propósito. Los visores son un semidisco y una barra:
+        # crecen hasta ArmPreview.ALTO_MAXIMO y de ahí no pasan (el radio lo
+        # limita el ancho del rail, que es fijo). Con stretch, al cerrar la
+        # terminal el dock le devolvía ~200px de alto al panel, la tarjeta se
+        # estiraba y esos píxeles quedaban como un hueco vacío DENTRO del
+        # recuadro. Ahora el sobrante va al addStretch() del final del rail y los
+        # visores conservan su proporción; su sizeHint es el alto máximo, así que
+        # siguen aprovechando todo el espacio que el rail sí puede darles.
+        card_pos.body.addLayout(preview_row)
 
-        # Stretch 1: la tarjeta de posición se queda con el espacio sobrante del
-        # rail (y se lo pasa a los visores). Sin esto se lo llevaba entero el
-        # addStretch() de más abajo y los visores quedaban en su alto mínimo.
-        root.addWidget(card_pos, 1)
+        root.addWidget(card_pos)
 
         # ---------- B. FINALES + SISTEMA (una sola fila) ----------
         row = QHBoxLayout()
@@ -146,8 +162,16 @@ class LeftPanel(QWidget):
 
         card_sens = SectionCard("Finales")
         card_sens.setFixedWidth(116)
+        card_sens.setMaximumHeight(198)
         self.led_x, self.led_y, self.led_z = _led("X"), _led("Y"), _led("Z")
-        for letter, led in (("X", self.led_x), ("Y", self.led_y), ("Z", self.led_z)):
+        for i, (letter, led) in enumerate((("X", self.led_x), ("Y", self.led_y),
+                                           ("Z", self.led_z))):
+            if i:
+                # Separadores elásticos: cuando el rail tiene alto de sobra (la
+                # terminal cerrada le devuelve ~200px) las filas se reparten el
+                # espacio en vez de amontonarse arriba y dejar la tarjeta a medio
+                # llenar. Con la ventana justa se colapsan a cero.
+                card_sens.body.addStretch()
             line = QHBoxLayout()
             line.setSpacing(8)
             line.addWidget(led)
@@ -159,24 +183,34 @@ class LeftPanel(QWidget):
             card_sens.body.addLayout(line)
 
         card_sys = SectionCard("Sistema")
+        card_sys.setMaximumHeight(198)
         self.lbl_status_home = QLabel("HOME")
         self.lbl_status_wait = QLabel("WAIT / BUSY")
         self.lbl_status_finish = QLabel("FINISH")
-        for b in (self.lbl_status_home, self.lbl_status_wait, self.lbl_status_finish):
+        for i, b in enumerate((self.lbl_status_home, self.lbl_status_wait,
+                               self.lbl_status_finish)):
+            if i:
+                card_sys.body.addStretch()      # ver nota en la tarjeta 'Finales'
             b.setProperty("class", "status_badge_off")
-            b.setFixedHeight(28)
+            # 30 con 6px de padding en style.css (antes: 28 con 8px). El badge
+            # lleva 13px de texto + padding + borde, y en los 28px de antes no
+            # entraba: "WAIT / BUSY" se veía recortado por arriba.
+            b.setFixedHeight(30)
             card_sys.body.addWidget(b)
 
         row.addWidget(card_sens)
         row.addWidget(card_sys, 1)
-        root.addLayout(row)
+        # Stretch 1: esta fila es la que se queda con el alto libre del rail
+        # (acotada por el máximo de las tarjetas). El addStretch() final recoge
+        # lo que sobre en pantallas muy altas.
+        root.addLayout(row, 1)
 
         root.addStretch()
 
         # ---------- C. PARADA DE EMERGENCIA (fuera del scroll) ----------
         self.btn_estop = QPushButton("  STOP EMERGENCIA")
         self.btn_estop.setProperty("class", "stop_button")
-        self.btn_estop.setMinimumHeight(68)
+        self.btn_estop.setMinimumHeight(self.ESTOP_ALTO_MINIMO)
         self.btn_estop.setToolTip("Corta todo movimiento inmediatamente. Atajo: Esc")
         marco.addWidget(self.btn_estop)
 
@@ -184,6 +218,64 @@ class LeftPanel(QWidget):
         self.btn_rearm.setMinimumHeight(42)
         self.btn_rearm.setToolTip("Libera el bloqueo de parada de emergencia (envía :-R).")
         marco.addWidget(self.btn_rearm)
+
+        # El área desplazable reserva el alto mínimo real de sus tarjetas. Sin
+        # esta reserva el STOP —que también reclama espacio— le comía alto al
+        # scroll y con la terminal abierta reaparecía la barra de
+        # desplazamiento, justo lo que el rail tiene que evitar. Con la reserva,
+        # el botón se queda sólo con lo que SOBRA. No se reserva el sizeHint
+        # (que pide los visores en su alto máximo) porque en una ventana al
+        # mínimo, y con la terminal abierta, no hay tanto alto: los visores se
+        # achican y el rail entra igual.
+        self.scroll.setMinimumHeight(tarjetas.minimumSizeHint().height())
+
+    # --- REPARTO DEL ALTO LIBRE ---
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._repartir_alto_libre()
+
+    def showEvent(self, event):
+        # Qt no manda resizeEvent mientras el widget está oculto: sin esto, el
+        # reparto recién se haría en el primer redimensionado de la ventana.
+        super().showEvent(event)
+        self._repartir_alto_libre()
+
+    def _repartir_alto_libre(self):
+        """Le da al STOP el alto que sobra después de las tarjetas.
+
+        Los visores tienen tope (el semidisco no crece más allá de lo que da el
+        ancho fijo del rail), así que al cerrar la terminal —que le devuelve
+        ~200px de alto al panel— sobraba un bloque de fondo vacío entre las
+        tarjetas y el botón. Ese sobrante se lo lleva ahora la parada de
+        emergencia, que es el control al que conviene llegar rápido y sin
+        apuntar. Si no sobra nada, el botón vuelve a su alto de siempre y el
+        espacio queda para las tarjetas.
+
+        Se calcula a mano en vez de con un stretch porque el reparto entre el
+        área desplazable y el botón tiene una prioridad clara: primero las
+        tarjetas, el resto para el STOP. Con los dos compitiendo por stretch,
+        Qt le daba alto al botón mientras el rail mostraba barra de scroll.
+        """
+        tarjetas = self.scroll.widget()
+        if tarjetas is None:
+            return
+        # Del botón Rearmar se toma su alto PREFERIDO y no el actual: la cuenta
+        # también corre antes del primer layout, cuando height() todavía informa
+        # el tamaño por defecto del widget y no el que va a tener.
+        alto_rearm = max(self.btn_rearm.minimumHeight(),
+                         self.btn_rearm.sizeHint().height())
+        # Los tres widgets del marco (scroll, STOP y Rearmar) dejan dos huecos
+        # de 6px entre ellos.
+        fijos = (tarjetas.sizeHint().height() + alto_rearm
+                 + self.ESTOP_ALTO_MINIMO + 2 * 6)
+        sobra = self.height() - fijos
+        alto = self.ESTOP_ALTO_MINIMO + max(
+            0, min(self.ESTOP_ALTO_MAXIMO - self.ESTOP_ALTO_MINIMO, sobra))
+        # Se compara contra el alto FIJADO y no contra height(): el segundo
+        # todavía no refleja el setFixedHeight anterior (el layout se aplica
+        # después) y el reparto se recalcularía en cada evento.
+        if self.btn_estop.maximumHeight() != alto:
+            self.btn_estop.setFixedHeight(alto)
 
     # --- helper opcional para el controlador: refresca las visualizaciones ---
     def update_preview(self, x, y, z):

@@ -9,13 +9,20 @@ from PyQt5.QtWidgets import QMessageBox, QTableWidgetItem, QFileDialog
 
 # Índices de columna de table_points, reexportados desde la vista para que haya
 # una sola definición del orden. La tabla es
-# ["#", "NOMBRE", "X", "Y", "Z", "GARRA", "VEL %"]: "#" es el número de paso
-# (solo visual), "NOMBRE" es opcional y los datos del movimiento arrancan en X.
+# ["#", "NOMBRE", "X", "Y", "Z", "GARRA", "VEL %", "ESPERA s"]: "#" es el número
+# de paso (solo visual), "NOMBRE" es opcional, los datos del movimiento arrancan
+# en X y "ESPERA s" es la pausa posterior al paso, en segundos.
 #
 # Están nombrados a propósito: la v1 usaba literales 0..4 y cada vez que se agregó
 # una columna los accesos quedaron corridos, cruzando los campos de las rutinas.
 from view.tab_teaching import (COL_NUM, COL_NAME, COL_X, COL_Y, COL_Z, COL_G,
-                               COL_V, RANGOS_CELDA)
+                               COL_V, COL_T, RANGOS_CELDA, RANGOS_DECIMALES,
+                               ESPERA_DECIMALES)
+
+
+def formatear_espera(segundos):
+    """Texto de una espera en segundos, con los decimales que usa la tabla."""
+    return "%.*f" % (ESPERA_DECIMALES, float(segundos))
 
 
 class LearningManager:
@@ -71,6 +78,10 @@ class LearningManager:
         g = self.app.gripper_state
         # Velocidad del segmento: por defecto la que se está usando (slider). Editable en la tabla.
         v = self.view.slider_speed.value()
+        # Espera posterior al paso, en segundos. Nace en 0 (encadenar sin pausa)
+        # y se edita en la tabla: es el tiempo que el brazo se queda quieto antes
+        # de que la interfaz mande el paso siguiente.
+        t = 0.0
 
         # 2. Crear una nueva fila al final de la tabla
         row_pos = self.view.table_points.rowCount()
@@ -85,9 +96,11 @@ class LearningManager:
         self.view.table_points.setItem(row_pos, COL_Z, QTableWidgetItem(str(z)))
         self.view.table_points.setItem(row_pos, COL_G, QTableWidgetItem(g))
         self.view.table_points.setItem(row_pos, COL_V, QTableWidgetItem(str(v)))
+        self.view.table_points.setItem(
+            row_pos, COL_T, QTableWidgetItem(formatear_espera(t)))
         self._repoblando = False
-        for col, val in ((COL_NAME, ""), (COL_X, x), (COL_Y, y),
-                         (COL_Z, z), (COL_G, g), (COL_V, v)):
+        for col, val in ((COL_NAME, ""), (COL_X, x), (COL_Y, y), (COL_Z, z),
+                         (COL_G, g), (COL_V, v), (COL_T, formatear_espera(t))):
             self._valores_previos[(row_pos, col)] = str(val)
         self.renumber_rows()
         self.refresh_move_buttons()
@@ -112,16 +125,41 @@ class LearningManager:
             self.view.tab_teach.lbl_count.setText("%d puntos" % tabla.rowCount())
 
     def validate_cell(self, item):
-        """Rechaza valores no numéricos o fuera del recorrido físico del robot.
+        """Rechaza valores no numéricos o fuera de rango (recorrido, velocidad, espera).
 
         El PointDelegate ya impide tipear basura desde el editor; esto cubre el
         pegado y cualquier escritura que no pase por él: revierte la celda al
-        último valor bueno y explica por qué el movimiento no es válido.
+        último valor bueno y explica por qué el valor no es válido.
         """
         if self._repoblando:
             return
         col = item.column()
         clave = (item.row(), col)
+
+        # La espera es la única celda con decimales: se valida aparte y se
+        # normaliza al formato de la tabla (0.0) para que el JSON no herede un
+        # "1,5" con coma ni un "2" pelado según cómo se haya tipeado.
+        if col in RANGOS_DECIMALES:
+            etiqueta, minimo, maximo = RANGOS_DECIMALES[col]
+            texto = (item.text() or "").strip().replace(",", ".")
+            try:
+                valor = float(texto)
+            except ValueError:
+                self._revert_cell(item, "«%s» no es un número." % item.text(),
+                                  etiqueta, minimo, maximo, "segundos")
+                return
+            if not (minimo <= valor <= maximo):
+                self._revert_cell(item, "Se recibió «%s»." % texto,
+                                  etiqueta, minimo, maximo, "segundos")
+                return
+            normalizado = formatear_espera(valor)
+            if item.text() != normalizado:
+                self._repoblando = True
+                item.setText(normalizado)
+                self._repoblando = False
+            self._valores_previos[clave] = normalizado
+            return
+
         if col not in RANGOS_CELDA:
             self._valores_previos[clave] = item.text()
             return          # "#", NOMBRE y GARRA no tienen rango numérico
@@ -148,15 +186,18 @@ class LearningManager:
         """Restaura el último valor válido de la celda y avisa por qué."""
         anterior = self._valores_previos.get((item.row(), item.column()),
                                              str(minimo))
+        # %g: los rangos enteros se siguen leyendo "0 y 580" y el de la espera,
+        # con extremos float, no sale como "0.0 y 60.0".
+        rango = "%g y %g" % (minimo, maximo)
         self._repoblando = True
         item.setText(anterior)
         self._repoblando = False
         QMessageBox.warning(
-            self.view, "Movimiento fuera de rango",
+            self.view, "Valor fuera de rango",
             "\n".join([
                 # Sólo la inicial: capitalize() convertiría "eje Z" en "Eje z".
-                "%s admite valores entre %d y %d %s."
-                % (etiqueta[:1].upper() + etiqueta[1:], minimo, maximo, unidad),
+                "%s admite valores entre %s %s."
+                % (etiqueta[:1].upper() + etiqueta[1:], rango, unidad),
                 detalle,
                 "",
                 "Se restauró el valor anterior (%s)." % anterior,
@@ -286,6 +327,15 @@ class LearningManager:
                 v = 50
             v = max(10, min(100, v))
 
+            # Espera posterior al paso, en segundos. Igual que la velocidad, si
+            # la celda quedó vacía o ilegible se asume 0 (sin pausa).
+            try:
+                t = float(self.view.table_points.item(i, COL_T).text()
+                          .replace(",", "."))
+            except (AttributeError, ValueError):
+                t = 0.0
+            t = max(0.0, min(RANGOS_DECIMALES[COL_T][2], t))
+
             p = {
                 "type": "MOV",
                 "x": int(self.view.table_points.item(i, COL_X).text()),
@@ -294,6 +344,12 @@ class LearningManager:
                 "g": self.view.table_points.item(i, COL_G).text(),
                 "v": v
             }
+
+            # La espera sólo se escribe si el operador la cargó: un "t": 0 en
+            # cada paso ensuciaría el JSON, y al ejecutar la ausencia de la clave
+            # ya significa "sin pausa".
+            if t > 0:
+                p["t"] = round(t, ESPERA_DECIMALES)
 
             # Nombre del punto: opcional. Sólo se escribe la clave "n" si el
             # usuario puso algo, para no ensuciar el JSON con cadenas vacías.

@@ -14,7 +14,7 @@ Ninguna depende del controlador: son puramente visuales.
 """
 
 from PyQt5.QtWidgets import QFrame, QVBoxLayout, QHBoxLayout, QLabel, QWidget, QSizePolicy
-from PyQt5.QtCore import Qt, QRectF, QPointF
+from PyQt5.QtCore import Qt, QRectF, QPointF, QSize
 from PyQt5.QtGui import QPainter, QPen, QColor, QBrush, QLinearGradient
 import math
 
@@ -55,6 +55,26 @@ X_HOME_A_LA_DERECHA = True
 # para que el brazo siga viéndose como un segmento y no como un punto, pero es lo
 # bastante chico para que "recogido" se lea como recogido.
 RADIO_MINIMO = 0.10
+
+
+def _ancho_texto(fm, texto):
+    """Ancho en px de un texto. QFontMetrics.width() quedó obsoleta en Qt 5.11."""
+    medir = getattr(fm, "horizontalAdvance", None)
+    return medir(texto) if medir is not None else fm.width(texto)
+
+
+def _fuente_que_entra(p, texto, ancho, minimo=6):
+    """Achica la fuente del QPainter hasta que `texto` entre en `ancho`.
+
+    Los rótulos de los visores se dibujan a mano: si el texto es más ancho que el
+    recuadro, Qt lo recorta sin avisar (era lo que pasaba con las coordenadas
+    cuando los dos ejes marcaban tres cifras). Devuelve la métrica final.
+    """
+    f = p.font()
+    while _ancho_texto(p.fontMetrics(), texto) > ancho and f.pointSize() > minimo:
+        f.setPointSize(f.pointSize() - 1)
+        p.setFont(f)
+    return p.fontMetrics()
 
 
 def _norm(valor, maximo):
@@ -124,21 +144,31 @@ class ArmPreview(QWidget):
     la pose física exacta de cada articulación.
     """
 
+    # Alto máximo del visor. El dibujo es un SEMIDISCO y su radio no puede pasar
+    # de la mitad del ancho; el rail tiene ancho FIJO, así que a partir de cierto
+    # alto el semidisco ya no crece y todo lo que sobra es hueco muerto dentro del
+    # recuadro. Eso era lo que se veía al cerrar la terminal (el dock le devuelve
+    # ~200px de alto al panel): los dos visores se estiraban y el dibujo quedaba
+    # flotando en un marco enorme. Con el tope, el sobrante queda como espacio
+    # libre del rail y los visores conservan su proporción.
+    ALTO_MAXIMO = 188
+    # El MÍNIMO es chico a propósito: con la terminal abierta el rail entero
+    # tiene que entrar en una ventana de 940px de alto sin barra de scroll. El
+    # sizeHint, en cambio, es el máximo: cuando hay lugar, el visor lo usa.
+    ALTO_MINIMO = 84
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.x_pasos = 0
         self.y_pasos = 0
-        # El alto manda: el dibujo es un SEMIDISCO, así que con 86px de alto en
-        # un rail de ~300px de ancho el barrido quedaba achatado contra el borde
-        # inferior (reach_max = min(ancho*0.42, alto-34) -> lo limitaba el alto).
-        # Con política Expanding en vertical la tarjeta le cede el espacio libre
-        # del panel y el semidisco recupera su proporción.
-        # El MÍNIMO se mantiene moderado (el rail tiene que seguir entrando
-        # entero en 1280x940, con el botón de STOP a la vista); lo que cambia es
-        # la política vertical: con Expanding el visor se queda con el espacio
-        # libre del panel en cuanto la ventana da de sí.
-        self.setMinimumHeight(100)
+        self.setMinimumHeight(self.ALTO_MINIMO)
+        self.setMaximumHeight(self.ALTO_MAXIMO)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+    def sizeHint(self):
+        # QWidget no define sizeHint: sin esto el layout lo mide por su mínimo y
+        # el visor nunca llegaba a usar el alto que tiene disponible.
+        return QSize(220, self.ALTO_MAXIMO)
 
     def set_position(self, x_pasos, y_pasos):
         self.x_pasos, self.y_pasos = x_pasos, y_pasos
@@ -154,23 +184,55 @@ class ArmPreview(QWidget):
         p.setBrush(QBrush(QColor(C_SUNKEN)))
         p.drawRoundedRect(QRectF(r).adjusted(0.5, 0.5, -0.5, -0.5), 8, 8)
 
+        # --- BANDAS DE TEXTO ---
+        # El alto de cada rótulo sale de la MÉTRICA de la fuente, no de un 12
+        # fijo como antes: con cualquier escala de pantalla mayor al 100 % el
+        # texto de coordenadas no entraba en esos 12px y Qt lo recortaba por
+        # abajo (se veían las cifras cortadas por la mitad).
+        f_rot = p.font()
+        f_rot.setFamily("IBM Plex Mono")
+        f_rot.setPointSize(9)
+        p.setFont(f_rot)
+        alto_rotulo = p.fontMetrics().height()
+
+        banda_sup = alto_rotulo + 12                 # debajo del titulo
+        banda_inf = r.height() - alto_rotulo - 8     # encima de las coordenadas
+
         cx = r.width() / 2.0
-        cy = r.height() - 18.0
-        reach_max = min(r.width() * 0.42, r.height() - 34)
+        # El radio nunca pasa de la mitad del ancho ni del alto libre. Cuando
+        # sobra alto, el semidisco se CENTRA en la banda en vez de quedar pegado
+        # abajo dejando un hueco muerto arriba.
+        reach_max = max(24.0, min(cx - 14.0, banda_inf - banda_sup))
+        cy = (banda_sup + banda_inf + reach_max) / 2.0
 
         # Arcos concéntricos, rotulados con el valor de Y que representan: sin la
-        # escala impresa no había forma de leer a qué distancia real está el gripper.
-        f_esc = p.font(); f_esc.setFamily("IBM Plex Mono"); f_esc.setPointSize(6)
-        for k in (0.25, 0.5, 0.75, 1.0):
+        # escala impresa no había forma de leer a que distancia real está el gripper.
+        f_esc = p.font()
+        f_esc.setFamily("IBM Plex Mono")
+        f_esc.setPointSize(7)
+        p.setFont(f_esc)
+        alto_esc = p.fontMetrics().height()
+        ultimo_y = None
+        for k in (1.0, 0.75, 0.5, 0.25):
             rr = reach_max * (RADIO_MINIMO + (1.0 - RADIO_MINIMO) * k)
             p.setPen(QPen(QColor(255, 255, 255, 16), 1))
             p.drawArc(QRectF(cx - rr, cy - rr, rr * 2, rr * 2), 0, 180 * 16)
+
+            # El rótulo de un arco se saltea si se montaría sobre el anterior.
+            # Con el visor chico (la terminal abierta le deja poco alto al rail)
+            # los cuatro arcos caen a pocos píxeles uno de otro y las cifras se
+            # pisaban entre sí. Se recorren de afuera hacia adentro para que,
+            # cuando hay que descartar, sobrevivan las marcas más separadas.
+            y = cy - rr
+            if ultimo_y is not None and abs(ultimo_y - y) < alto_esc + 1:
+                continue
+            ultimo_y = y
             p.setFont(f_esc)
             p.setPen(QColor(C_FAINT))
             # Rotulados a la DERECHA del eje vertical, como las marcas de una
             # regla. Centrados sobre el vértice del arco se montaban encima del
-            # título "VISTA SUP. · X/Y", sobre todo ahora que el visor es más alto.
-            p.drawText(QRectF(cx + 5, cy - rr - 6, 40, 11),
+            # título "VISTA SUP.".
+            p.drawText(QRectF(cx + 5, y - alto_esc / 2.0, 44, alto_esc),
                        Qt.AlignLeft | Qt.AlignVCenter, "%d" % round(RANGO_Y * k))
 
         # ejes de referencia
@@ -178,18 +240,16 @@ class ArmPreview(QWidget):
         p.drawLine(int(cx), int(cy), int(cx), int(cy - reach_max))
         p.drawLine(12, int(cy), r.width() - 12, int(cy))
 
-        # Brazo: la base barre 180° a lo largo de su recorrido en pasos. Con
-        # X_HOME_A_LA_DERECHA, la posición 0 queda a 0° (derecha) y el tope a 180°
-        # (izquierda); con el flag en False el barrido va al revés.
+        # Brazo: la base barre 180 grados a lo largo de su recorrido en pasos. Con
+        # X_HOME_A_LA_DERECHA, la posición 0 queda a 0 grados (derecha) y el tope a
+        # 180 (izquierda); con el flag en False el barrido va al revés.
         avance_x = _norm(self.x_pasos, RANGO_X)
         if not X_HOME_A_LA_DERECHA:
             avance_x = 1.0 - avance_x
         ang = math.radians(180.0 * avance_x)
 
         # La extensión es PROPORCIONAL a Y en todo el recorrido: con Y=0 el gripper
-        # queda sobre el origen y con Y=RANGO_Y en el arco exterior. Antes la
-        # fórmula era (0.55 + 0.45·Y), o sea que en Y=0 ya arrancaba a mitad de
-        # camino y la distancia dibujada no se correspondía con la real.
+        # queda sobre el origen y con Y=RANGO_Y en el arco exterior.
         avance_y = _norm(self.y_pasos, RANGO_Y)
         reach = reach_max * (RADIO_MINIMO + (1.0 - RADIO_MINIMO) * avance_y)
         tip = QPointF(cx + reach * math.cos(ang), cy - reach * math.sin(ang))
@@ -212,17 +272,23 @@ class ArmPreview(QWidget):
         p.setBrush(QColor("#1c2126"))
         p.drawEllipse(QPointF(cx, cy), 5.5, 5.5)
 
-        # rótulos
-        f = p.font(); f.setFamily("IBM Plex Mono"); f.setPointSize(10); p.setFont(f)
+        # --- RÓTULOS ---
+        p.setFont(f_rot)
         p.setPen(QColor(C_FAINT))
-        p.drawText(9, 17, "VISTA SUP. · X/Y")
-        # Alineado a la derecha del widget en vez de a un offset fijo de 150px:
-        # con posiciones de tres cifras el rótulo se salía del recuadro.
+        p.drawText(QRectF(9, 4, r.width() - 18, alto_rotulo + 4),
+                   Qt.AlignLeft | Qt.AlignVCenter, "VISTA SUP. \u00b7 X/Y")
+
+        # Coordenadas: el ancho útil es el del widget menos los márgenes, y la
+        # fuente se achica sola si el texto no entra (posiciones de tres cifras en
+        # los dos ejes). Antes se dibujaba con la fuente fija en un rectángulo de
+        # 12px de alto: se cortaba arriba y abajo.
+        texto = "X %d/%d \u00b7 Y %d/%d" % (self.x_pasos, RANGO_X,
+                                            self.y_pasos, RANGO_Y)
+        ancho_util = r.width() - 18
+        fm = _fuente_que_entra(p, texto, ancho_util)
         p.setPen(QColor(C_ACCENT))
-        p.drawText(QRectF(0, r.height() - 19, r.width() - 9, 12),
-                   Qt.AlignRight | Qt.AlignVCenter,
-                   "X %d/%d · Y %d/%d" % (self.x_pasos, RANGO_X,
-                                          self.y_pasos, RANGO_Y))
+        p.drawText(QRectF(9, r.height() - fm.height() - 5, ancho_util, fm.height()),
+                   Qt.AlignRight | Qt.AlignVCenter, texto)
         p.end()
 
 
@@ -232,10 +298,15 @@ class ZGauge(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.value = 0
-        # Acompaña el alto de ArmPreview para que los dos visores queden parejos.
+        # Acompaña el alto de ArmPreview para que los dos visores queden parejos
+        # (mismo mínimo y mismo tope: ver la nota de ArmPreview.ALTO_MAXIMO).
         self.setFixedWidth(64)
-        self.setMinimumHeight(100)
+        self.setMinimumHeight(ArmPreview.ALTO_MINIMO)
+        self.setMaximumHeight(ArmPreview.ALTO_MAXIMO)
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+
+    def sizeHint(self):
+        return QSize(64, ArmPreview.ALTO_MAXIMO)
 
     def set_value(self, v):
         self.value = v
@@ -249,11 +320,20 @@ class ZGauge(QWidget):
         p.setBrush(QBrush(QColor(C_SUNKEN)))
         p.drawRoundedRect(QRectF(r).adjusted(0.5, 0.5, -0.5, -0.5), 8, 8)
 
-        f = p.font(); f.setFamily("IBM Plex Mono"); f.setPointSize(10); p.setFont(f)
-        p.setPen(QColor(C_FAINT))
-        p.drawText(QRectF(0, 5, r.width(), 12), Qt.AlignCenter, "Z")
+        # Igual que en ArmPreview: las bandas de texto salen de la métrica de la
+        # fuente. El valor de Z no entraba en los 12px fijos de antes.
+        f = p.font()
+        f.setFamily("IBM Plex Mono")
+        f.setPointSize(9)
+        p.setFont(f)
+        alto_rotulo = p.fontMetrics().height()
 
-        track = QRectF(r.width() / 2 - 5.5, 22, 11, r.height() - 44)
+        p.setPen(QColor(C_FAINT))
+        p.drawText(QRectF(0, 4, r.width(), alto_rotulo), Qt.AlignCenter, "Z")
+
+        tope = alto_rotulo + 12
+        piso = r.height() - alto_rotulo - 8
+        track = QRectF(r.width() / 2 - 5.5, tope, 11, max(10.0, piso - tope))
         p.setPen(Qt.NoPen)
         p.setBrush(QColor("#171b1f"))
         p.drawRoundedRect(track, 6, 6)
@@ -268,8 +348,11 @@ class ZGauge(QWidget):
             p.setBrush(QBrush(grad))
             p.drawRoundedRect(fill, 6, 6)
 
+        texto = "%d/%d" % (self.value, RANGO_Z)
+        fm = _fuente_que_entra(p, texto, r.width() - 8)
         p.setPen(QColor(C_Z))
-        p.drawText(QRectF(0, r.height() - 17, r.width(), 12), Qt.AlignCenter, str(self.value))
+        p.drawText(QRectF(4, r.height() - fm.height() - 5, r.width() - 8, fm.height()),
+                   Qt.AlignCenter, texto)
         p.end()
 
 
