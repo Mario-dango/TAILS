@@ -19,10 +19,25 @@ volatile uint8_t flagStopM_Z = 0;
 // Variable Global de Estado
 volatile uint8_t robotState = STATE_IDLE;
 
+// Bandera de "ya homeado" (vive en main.c). La necesita el freno por límite
+// articular: sin homing la posición en pasos no tiene referencia física.
+extern uint8_t robotCalibrated;
+
 // Último evento de interrupción, para que el bucle principal lo reporte por USB.
 // NO imprimimos dentro de la ISR (USB_Print puede bloquear ~10ms): solo dejamos
 // la marca y Robot_ReportInterrupts() la vacía fuera del contexto de interrupción.
 volatile uint8_t lastIrqSource = IRQ_SRC_NONE;
+
+// Tope lejano de cada eje, en el mismo orden que motors[] (X, Y, Z). El fin de
+// carrera cubre el extremo de HOME; este es el otro extremo, que hasta ahora no
+// tenía ninguna protección en firmware.
+const int motorMaxPos[NUM_MOTORS] = { MAX_POS_X, MAX_POS_Y, MAX_POS_Z };
+
+// Implementación por defecto del latido de homing: vacía y "débil", para que
+// robot_logic.c la reemplace con el envío de telemetría. Así el driver puede
+// llamarla sin depender de la capa de lógica (y sigue enlazando si se compila
+// motor_driver.c en un banco de pruebas sin robot_logic.c).
+__attribute__((weak)) void Motor_HomingTick(void) { }
 
 // Configuración por defecto de rampas (Ajustable)
 #define DEFAULT_MIN_VEL  50   // 50 Hz de arranque (evita resonancia baja)
@@ -31,7 +46,8 @@ volatile uint8_t lastIrqSource = IRQ_SRC_NONE;
 // --- CONFIGURACIÓN DE HOMING ---
 #define SPEED_STD       60  // Hz para Y y X (1.8°)
 #define SPEED_FAST      30  // Hz para Z (3.75°)
-#define TIMEOUT_SEC     10  // Tiempo máximo por eje
+#define TIMEOUT_SEC     10  // Tiempo máximo por eje buscando su fin de carrera
+#define BACKOFF_TIMEOUT_SEC 5 // Tiempo máximo para liberar un sensor ya presionado
 
 // --- Funciones Privadas ---
 // --- PROTOTIPOS DE FUNCIONES PRIVADAS ---
@@ -180,6 +196,9 @@ void CalculateSpeed(StepperMotor *m) {
 
 static int RunHomingSequence(int motorIndex, int velocity, int direction) {
 
+    // Marca de tiempo para los timeouts de este eje (ver nota más abajo).
+    uint32_t t0;
+
     // --- PASO 0: VERIFICACIÓN PREVIA (SMART HOMING) ---
     // ¿El sensor YA está presionado antes de empezar?
     if (IsSensorPressed(motorIndex)) {
@@ -205,10 +224,18 @@ static int RunHomingSequence(int motorIndex, int velocity, int direction) {
 
         motors[motorIndex].stopFlag = 0; // Moverse
 
-        // Esperar hasta que el sensor SE SUELTE (deje de estar presionado)
-        contSeconds = 0;
-        while (IsSensorPressed(motorIndex) && contSeconds < 5 // Timeout corto de seguridad
-               && robotState != STATE_ESTOP);
+        // Esperar hasta que el sensor SE SUELTE (deje de estar presionado).
+        // El timeout se mide con HAL_GetTick() (SysTick) en vez de contSeconds:
+        // SysTick lo arranca HAL_Init() siempre, mientras que contSeconds depende
+        // de que TIM3 esté inicializado y con su IRQ habilitada. Si esa cadena se
+        // rompe, el contador no avanza nunca y el while queda colgado para
+        // siempre — que es justo el síntoma de "se queda en Homing".
+        t0 = HAL_GetTick();
+        while (IsSensorPressed(motorIndex)
+               && (HAL_GetTick() - t0) < (BACKOFF_TIMEOUT_SEC * 1000U)
+               && robotState != STATE_ESTOP) {
+            Motor_HomingTick();   // telemetría viva durante la espera bloqueante
+        }
 
         // Abortar si entró un E-STOP durante la espera
         if (robotState == STATE_ESTOP) { motors[motorIndex].stopFlag = 1; return -9; }
@@ -246,11 +273,19 @@ static int RunHomingSequence(int motorIndex, int velocity, int direction) {
     else if (motorIndex == 1) flagStopM_Y = 0;
     else flagStopM_Z = 0;
 
-    // Esperar a que el sensor se active (Flag ISR o lectura directa)
-    contSeconds = 0;
+    // Esperar a que el sensor se active. Timeout con SysTick (ver nota arriba):
+    // así el eje deja de buscar aunque el fin de carrera esté desconectado o el
+    // motor no llegue nunca, en vez de bloquear el firmware indefinidamente.
+    t0 = HAL_GetTick();
     // Usamos lectura directa también por seguridad redundante
-    while (!IsSensorPressed(motorIndex) && (contSeconds < TIMEOUT_SEC)
-           && robotState != STATE_ESTOP);
+    while (!IsSensorPressed(motorIndex)
+           && (HAL_GetTick() - t0) < (TIMEOUT_SEC * 1000U)
+           && robotState != STATE_ESTOP) {
+        // Esta es LA espera larga del homing: sin el latido, la interfaz se pasa
+        // los 10s de búsqueda sin recibir nada y el LED del final de carrera se
+        // enciende (si acaso) recién cuando ya se liberó en el back-off.
+        Motor_HomingTick();
+    }
 
     motors[motorIndex].stopFlag = 1; // STOP
 
@@ -323,7 +358,9 @@ int HomingMotors(uint8_t* hmX, uint8_t* hmY, uint8_t* hmZ) {
     while((motors[0].currentPosition < motors[0].newPosition ||
            motors[1].currentPosition < motors[1].newPosition ||
            motors[2].currentPosition < motors[2].newPosition)
-          && robotState != STATE_ESTOP);
+          && robotState != STATE_ESTOP) {
+        Motor_HomingTick();
+    }
 
     if (robotState == STATE_ESTOP) {
         for (int i = 0; i < NUM_MOTORS; i++) { motors[i].stopFlag = 1; motors[i].stepInterval = 0; }
@@ -377,6 +414,28 @@ void Motor_Timer_Callback(void) {
              motor->velocity = 0;
              motor->stopFlag = 1;
              continue; // Saltamos al siguiente motor, este no se mueve.
+        }
+
+        // [PRIORIDAD ALTA] LÍMITE ARTICULAR (el extremo OPUESTO al fin de carrera)
+        // Simétrico al bloque de arriba: el sensor cuida el lado de HOME y esto
+        // cuida el tope lejano, que no tenía ninguna protección. Frena aunque el
+        // destino venga de un comando crudo escrito a mano en la terminal.
+        //
+        // Sólo con el robot calibrado y fuera del homing: antes de homear la
+        // posición no significa nada, y el homing usa metas de HOMING_FAR_STEPS
+        // a propósito, así que aquí lo frenaría en el primer paso.
+        if (robotCalibrated && robotState != STATE_HOMING
+            && motor->direction == DIR_AWAY_HOME
+            && motor->currentPosition >= motorMaxPos[i]) {
+             motor->stepInterval = 0;
+             motor->velocity = 0;
+             motor->targetVelocity = 0;
+             motor->stopFlag = 1;
+             // Damos la meta por alcanzada: si newPosition apuntara más allá del
+             // tope, el movimiento no se daría nunca por terminado (mismo bucle
+             // que ya documenta Motor_Sensor_Triggered para los finales).
+             motor->newPosition = motor->currentPosition;
+             continue;
         }
 
         // --- GENERACIÓN NORMAL DE PASOS ---
@@ -462,6 +521,15 @@ void Motor_Sensor_Triggered(uint16_t GPIO_Pin) {
             motorAfectado->targetVelocity = 0;
             motorAfectado->stepInterval = 0; // <--- Freno instantáneo
             motorAfectado->stopFlag = 1;
+
+            // A2. CANCELAR la meta pendiente. El sensor frena el motor, pero si
+            // newPosition queda apuntando a un destino que está más allá del fin
+            // de carrera, el movimiento nunca se da por terminado: cada comando
+            // siguiente lo relanzaba, avanzaba unos pasos y el sensor lo frenaba
+            // otra vez. Eso dejaba al robot en un bucle, con el LED de WAIT
+            // parpadeando y sin desplazamiento real. Damos la meta por alcanzada
+            // en la posición donde efectivamente quedó.
+            motorAfectado->newPosition = motorAfectado->currentPosition;
 
             // B. Marcar bandera para lógica de Homing
             if (flagGlobal != NULL) *flagGlobal = 1;

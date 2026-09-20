@@ -52,6 +52,36 @@ int velocidadGlobal = DEFAULT_GLOBAL_VELOCITY; // Default para que el primer jog
 // homing o al calibrar por :-Z. (Definida aquí, usada también en main.c).
 volatile uint8_t homingFailed = 0;
 
+// Latido de las esperas bloqueantes del homing (declarado en motor_driver.h).
+// HomingMotors() no devuelve el control al bucle principal hasta terminar, así que
+// sin esto la interfaz pasa toda la calibración a ciegas: no recibe ninguna trama
+// STATUS y los LEDs de finales de carrera nunca se encienden (el back-off ya los
+// liberó cuando por fin llega la primera). Reusa el throttle de 50 ms de
+// Robot_UpdateTelemetry(), así que no satura el CDC por más seguido que se llame.
+void Motor_HomingTick(void) {
+    Robot_UpdateTelemetry();
+    Robot_ReportInterrupts();
+}
+
+// Recorta un destino al recorrido real del eje (0 .. motorMaxPos[idx]) y avisa por
+// consola cuando hubo que hacerlo. El fin de carrera sólo protege el lado de HOME:
+// del otro lado, hasta ahora, se aceptaba cualquier número que mandara el PC.
+// Devuelve el valor ya acotado.
+static int Robot_LimitarDestino(int idx, int destino) {
+    const char eje = (idx == 0) ? 'X' : (idx == 1) ? 'Y' : 'Z';
+    int limitado = destino;
+
+    if (limitado > motorMaxPos[idx]) limitado = motorMaxPos[idx];
+    if (limitado < 0)                limitado = 0;
+
+    if (limitado != destino) {
+        sprintf(buffer_tx, "AVISO|Limite de eje %c: pedido %d, recortado a %d\r\n",
+                eje, destino, limitado);
+        USB_Print(buffer_tx);
+    }
+    return limitado;
+}
+
 // Devuelve una descripción legible del código de error de homing (no solo el número).
 const char* Robot_HomingErrorStr(int code){
     switch (code) {
@@ -118,8 +148,10 @@ uint8_t Robot_ModoCalibracion(void){
       	  	  // 1. COMANDO HOMING (:-H)
       	  // Busca los sensores físicos para establecer el cero real de máquina.
 		if (buffer_rx[2] == 'H'){
-	          // 1. FORZAR LED DE "OCUPADO" (Wait)
+	          // 1. FORZAR LED DE "OCUPADO" (Wait) y apagar el de tarea terminada:
+	          //    arranca una tarea nueva, lo anterior ya no está "finalizado".
 	          HAL_GPIO_WritePin(Wait_led_GPIO_Port, Wait_led_Pin, GPIO_PIN_SET);
+	          HAL_GPIO_WritePin(Finish_led_GPIO_Port, Finish_led_Pin, GPIO_PIN_RESET);
 
 	          robotCalibrated = 0;
 	          homingFailed = 0; // Reintento: limpiamos cualquier fallo previo (apaga parpadeo)
@@ -145,6 +177,11 @@ uint8_t Robot_ModoCalibracion(void){
 	              sprintf(buffer_tx, "Homing OK\r\n"); USB_Print(buffer_tx);
 	              Lcd_Set_Cursor(1,1); Lcd_Send_String("Home Status: OK");
 	              HAL_GPIO_WritePin(Home_led_GPIO_Port, Home_led_Pin, GPIO_PIN_SET);
+
+	              // FINISH: el homing es bloqueante, así que la telemetría no corre
+	              // mientras dura y el flanco de "dejó de moverse" se pierde. Lo
+	              // encendemos acá para que el fin de calibración también lo marque.
+	              HAL_GPIO_WritePin(Finish_led_GPIO_Port, Finish_led_Pin, GPIO_PIN_SET);
 	          } else {
               // Marcamos el fallo (el LED de Home parpadea desde el bucle principal) e
               // imprimimos DESCRIPCIÓN + código, no solo el número.
@@ -306,6 +343,16 @@ uint8_t Robot_ModoEjecucion(void){
     // Validamos que al menos se haya enviado alguna coordenada
     if (x >= 0 || y >= 0 || z >= 0) {
 
+        // LÍMITES ARTICULARES: recortamos el destino ANTES de mandarlo al driver.
+        // Se recorta acá y no dentro de moveMotors() porque esa función recibe un
+        // StepperMotor* suelto y no sabe qué eje es. Sólo con el robot calibrado:
+        // sin homing los pasos no tienen referencia física contra la que comparar.
+        if (robotCalibrated) {
+            if (x >= 0) x = Robot_LimitarDestino(0, x);
+            if (y >= 0) y = Robot_LimitarDestino(1, y);
+            if (z >= 0) z = Robot_LimitarDestino(2, z);
+        }
+
         // Al llamar a moveMotors, pasamos &velDefecto en lugar de 0
         // Así aseguramos que el motor despierte del estado de reposo (vel=0)
     	if (x >= 0) moveMotors(&motors[0], &x, &velocidadGlobal);
@@ -380,6 +427,8 @@ uint8_t Robot_ModoTest(void){
 
         int delta  = (sign == '-') ? -steps : steps;
         int target = motors[idx].currentPosition + delta;
+        // El jog de test también respeta el tope articular (si hay referencia).
+        if (robotCalibrated) target = Robot_LimitarDestino(idx, target);
         moveMotors(&motors[idx], &target, &velocidadGlobal);
 
         sprintf(buffer_tx, "TEST: motor %c %c%d pasos (destino %d)\r\n",
@@ -447,6 +496,15 @@ void Robot_ProcesarComando(char *cmd){
             case '-':
                 // Comandos de Configuración
                 if (cmd[2] == 'H') {
+                     // Guarda de reentrada: HomingMotors() es BLOQUEANTE. Si el
+                     // operador aprieta HOME varias veces seguidas, cada :-H que
+                     // entra por USB encolaba otra rutina completa y el robot
+                     // parecía quedarse trabado en "Homing". Rechazamos el pedido
+                     // mientras haya uno en curso.
+                     if (robotState == STATE_HOMING) {
+                         USB_Print("AVISO|Homing ya en curso: se ignora el :-H repetido\r\n");
+                         break;
+                     }
                      // Homing cambia el estado a HOMING
                      robotState = STATE_HOMING;
                      Robot_ModoCalibracion();
@@ -504,6 +562,13 @@ void Robot_UpdateTelemetry(void) {
     // Estado de movimiento (Si alguno tiene velocidad > 0)
     uint8_t currMoving = (motors[0].velocity > 0 || motors[1].velocity > 0 || motors[2].velocity > 0);
 
+    // El HOMING cuenta como UNA tarea, de punta a punta. Ahora que la telemetría
+    // también corre durante la calibración (Motor_HomingTick), entre eje y eje
+    // los motores quedan un instante quietos: sin esto se verían tres pulsos de
+    // "tarea terminada" —LED de Finish en la placa y badge FINISH en la
+    // interfaz— en mitad del homing, uno por eje.
+    if (robotState == STATE_HOMING) currMoving = 1;
+
     // Estado calibración
     uint8_t currCalib = robotCalibrated;
 
@@ -518,8 +583,18 @@ void Robot_UpdateTelemetry(void) {
     if (!homingFailed)
         HAL_GPIO_WritePin(Home_led_GPIO_Port, Home_led_Pin, currCalib ? GPIO_PIN_SET : GPIO_PIN_RESET);
     HAL_GPIO_WritePin(Wait_led_GPIO_Port, Wait_led_Pin, currMoving ? GPIO_PIN_SET : GPIO_PIN_RESET);
-    // (Opcional) Finish Led podría ser parpadeo, aquí lo dejamos apagado por ahora
-    // HAL_GPIO_WritePin(Finish_led_GPIO_Port, Finish_led_Pin, GPIO_PIN_RESET);
+
+    // LED de FINISH: marca "tarea terminada". Se maneja por FLANCO del estado de
+    // movimiento, así cubre los tres casos de una sola vez —fin de homing, fin de
+    // un jog y fin de cada paso de rutina— sin que cada rutina tenga que acordarse
+    // de encenderlo. Antes esta línea estaba comentada y el LED no prendía nunca.
+    if (currMoving && !prevMoving) {
+        // Arrancó un movimiento: la tarea anterior deja de estar "terminada"
+        HAL_GPIO_WritePin(Finish_led_GPIO_Port, Finish_led_Pin, GPIO_PIN_RESET);
+    } else if (!currMoving && prevMoving) {
+        // Se detuvo: tarea completada
+        HAL_GPIO_WritePin(Finish_led_GPIO_Port, Finish_led_Pin, GPIO_PIN_SET);
+    }
 
 
     // 3. DETECCIÓN DE CAMBIOS Y ENVÍO SERIAL
@@ -579,14 +654,27 @@ void Robot_ReportInterrupts(void) {
         case IRQ_SRC_ESTOP_SW:
             USB_Print("IRQ|E-STOP: comando :-S (software)\r\n");
             break;
+        // En los fines de carrera avisamos además que el movimiento pendiente se
+        // canceló (lo hace Motor_Sensor_Triggered igualando newPosition a la
+        // posición real). Es un aviso NO BLOQUEANTE: el robot sigue aceptando
+        // comandos, sólo se descartó el tramo que excedía el recorrido.
+        //
+        // Durante el homing NO se avisa: ahí tocar los tres finales es el
+        // procedimiento normal y el aviso sólo ensuciaría la consola.
         case IRQ_SRC_LIMIT_X:
             USB_Print("IRQ|Fin de carrera: eje X (PB12)\r\n");
+            if (robotState != STATE_HOMING)
+                USB_Print("AVISO|Movimiento cancelado: eje X en fin de carrera\r\n");
             break;
         case IRQ_SRC_LIMIT_Y:
             USB_Print("IRQ|Fin de carrera: eje Y (PB13)\r\n");
+            if (robotState != STATE_HOMING)
+                USB_Print("AVISO|Movimiento cancelado: eje Y en fin de carrera\r\n");
             break;
         case IRQ_SRC_LIMIT_Z:
             USB_Print("IRQ|Fin de carrera: eje Z (PB14)\r\n");
+            if (robotState != STATE_HOMING)
+                USB_Print("AVISO|Movimiento cancelado: eje Z en fin de carrera\r\n");
             break;
         default:
             break;

@@ -50,12 +50,25 @@
 StepperMotor motors[NUM_MOTORS];
 
 // Buffers de Comunicación (Compartidos con comm_manager y robot_logic)
-uint8_t flagUsb = 0;       // Se pone en 1 desde usbd_cdc_if.c
+// flagUsb es volatile: lo pone en 1 la ISR de recepción USB y lo sondea el bucle
+// principal. Sin el calificador el compilador puede cachearlo en un registro y
+// el bucle no se entera nunca de que llegó un comando.
+volatile uint8_t flagUsb = 0;       // Se pone en 1 desde usbd_cdc_if.c
+
+// buffer_rx queda SIN volatile a propósito: se lo pasa a atoi(), BuscarValor() y
+// CDC_FS_Substring(), que reciben char*, y calificarlo dispararía "discards
+// volatile qualifier" en toda la cadena. La sincronización real la da flagUsb:
+// la ISR llena el buffer y recién después lo señaliza, y el bucle sólo lee el
+// buffer cuando ve el flag levantado.
 char buffer_rx[40];
 char buffer_tx[80];
 char buffer_data[4][6];
 
-int contSeconds = 0;
+// volatile: lo incrementa la ISR de TIM3 (1 Hz) y lo leen los busy-wait del
+// homing en motor_driver.c. Sin volatile el compilador cachea el valor en un
+// registro, la condición `contSeconds < TIMEOUT_SEC` no cambia nunca y la
+// rutina de homing queda colgada para siempre en STATE_HOMING.
+volatile int contSeconds = 0;
 
 // Variables para LCD (Estéticas del Main)
 // Nota: estadoGarra se maneja internamente en gripper_driver,
@@ -267,8 +280,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 	}
 	// Timer de conteo de segundos (Baja frecuencia)
 	if (htim->Instance == TIM3){
-		extern int contSeconds; // Variable definida en motor_driver.c u otro
-		contSeconds++;
+		contSeconds++;   // declarado arriba en este mismo archivo
 	}
 }
 

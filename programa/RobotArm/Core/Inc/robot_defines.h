@@ -27,6 +27,15 @@
 // distancia para que CalculateSpeed no frene el motor antes de llegar al sensor.
 #define HOMING_FAR_STEPS 1000000L
 
+// --- LIMITES ARTICULARES (TOPE LEJANO DE CADA EJE, EN PASOS) ---
+// El fin de carrera protege el extremo de HOME; del otro lado no habia nada que
+// frenara al brazo: se aceptaba cualquier destino que mandara la interfaz. Estos
+// son los topes mecanicos medidos, y deben coincidir con RANGO_X/Y/Z de
+// interfaz/view/ui_widgets.py (la interfaz recorta igual, esto es la red final).
+#define MAX_POS_X 580   // giro de la base
+#define MAX_POS_Y 130   // extension del brazo
+#define MAX_POS_Z 60    // altura
+
 // ESTADOS DEL ROBOT
 #define STATE_IDLE      0  // Normal, esperando comandos
 #define STATE_HOMING    1  // En proceso de calibración

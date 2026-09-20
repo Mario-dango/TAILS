@@ -52,7 +52,7 @@
 #define APP_TX_DATA_SIZE  1024
 /* USER CODE BEGIN EXPORTED_DEFINES */
 
- extern uint8_t flagUsb;
+ extern volatile uint8_t flagUsb;  // volatile: la escribe esta ISR, la sondea el bucle principal
  extern char buffer_rx[40];
 
 /* USER CODE END EXPORTED_DEFINES */

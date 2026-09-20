@@ -14,9 +14,22 @@
 // --- Variables Externas ---
 // Prometemos que existen en main.c o motor_driver.c
 extern StepperMotor motors[NUM_MOTORS];
-extern int contSeconds; // Variable para el timeout del homing
+// volatile: la incrementa la ISR de TIM3 y la leen los busy-wait del homing.
+// El calificador tiene que coincidir con la definición en main.c.
+extern volatile int contSeconds; // Timeout del homing
+
+// Tope lejano de cada eje en pasos (MAX_POS_X/Y/Z de robot_defines.h), indexado
+// igual que motors[]. Lo usan el recorte de destinos de robot_logic.c y el freno
+// duro del ISR de pasos.
+extern const int motorMaxPos[NUM_MOTORS];
 
 // --- Prototipos de Funciones ---
+
+// Latido para las esperas BLOQUEANTES del homing. El driver lo llama dentro de
+// sus busy-wait; lo implementa robot_logic.c enviando telemetría. Sin esto, la
+// interfaz no recibe una sola trama mientras dura la calibración y los LEDs de
+// finales de carrera nunca llegan a encenderse (el back-off final ya los liberó).
+void Motor_HomingTick(void);
 
 // Inicializa o configura valores por defecto si es necesario
 void Motor_Init(void);
