@@ -1,0 +1,107 @@
+% ============================================================
+\section{Resultados, especificaciones finales}\label{sec:resultados}
+% ============================================================
+
+\subsection{Grado de cumplimiento de los objetivos}
+La Tabla~\ref{tab:cumplimiento} compara las funcionalidades pedidas en la consigna con lo
+implementado. El protocolo de comandos se rediseñó respecto de la propuesta original
+(\cmd{:Att}, \cmd{:G}, \cmd{:Ett}, etc.): se agrupó por prefijo de modo y el almacenamiento
+de trayectorias se trasladó a la PC.
+
+\begin{table}[H]
+\centering\small
+\caption{Cumplimiento de las funcionalidades planteadas en la consigna.}\label{tab:cumplimiento}
+\begin{tabularx}{\textwidth}{@{}X l X@{}}
+\toprule
+\textbf{Funcionalidad (consigna)} & \textbf{Estado} & \textbf{Implementación}\\
+\midrule
+Calibrar ejes & \textcolor{green!50!black}{Cumplido} & \emph{Homing} automático con finales de carrera (\cmd{:-H}) y cero manual (\cmd{:-Z}).\\
+Aprender posiciones articulares manualmente & \textcolor{green!50!black}{Cumplido} & \emph{Jogging} desde la interfaz o el teclado y captura de puntos en tabla.\\
+Cargar posiciones arbitrarias por puerto serie & \textcolor{green!50!black}{Cumplido} & \cmd{:\#X..Y..Z..} desde la terminal, o edición de la tabla o del JSON.\\
+Guardar trayectorias de varios puntos & \textcolor{orange!80!black}{Adaptado} & Rutinas en archivos JSON en la PC, sin cantidad fija de puntos. No se almacenan en la Flash del MCU.\\
+Ejecutar trayectorias aprendidas & \textcolor{green!50!black}{Cumplido} & Secuenciador en la PC con pausa, detención y progreso.\\
+Ejecutar un punto directo & \textcolor{green!50!black}{Cumplido} & \cmd{:\#X..Y..Z..} en cualquier modo, salvo E-STOP.\\
+Velocidad global 10--100~\% & \textcolor{green!50!black}{Cumplido} & \cmd{:-Vnnn} ($v=10\cdot\%$ pasos/s).\\
+Velocidad local por punto & \textcolor{green!50!black}{Cumplido} & Campo \cmd{V} en la trama y clave \texttt{v} en el JSON.\\
+Tiempo de espera por punto & \textcolor{green!50!black}{Cumplido} & Clave \texttt{t} (0--\SI{60}{\second}), resuelta por la PC.\\
+Estado de la pinza por punto & \textcolor{green!50!black}{Cumplido} & \cmd{|A} / \cmd{|C} en la trama y clave \texttt{g} en el JSON. Ángulos configurables.\\
+\midrule
+\multicolumn{3}{@{}l}{\emph{Funcionalidades agregadas}}\\
+Parada de emergencia enclavada & \textcolor{green!50!black}{Agregado} & Botón físico (EXTI) y comando \cmd{:-S}. Rearme con \cmd{:-R}.\\
+Límites articulares en ambos extremos & \textcolor{green!50!black}{Agregado} & Sensor del lado de HOME y tope por software del lado opuesto, en firmware y en PC.\\
+Telemetría y diagnóstico & \textcolor{green!50!black}{Agregado} & Trama \texttt{STATUS}, registro de interrupciones, panel de test (\cmd{:*}), ayuda (\cmd{:-?}), LCD y LEDs.\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Consumo eléctrico}
+La Tabla~\ref{tab:consumo} resume las mediciones hechas con el medidor integrado a la salida
+de la fuente AT. La potencia se calculó con la tensión en vacío (\SI{11,2}{\volt}), por lo que
+es una cota superior si la tensión baja con la carga.
+
+\begin{table}[H]
+\centering\small
+\caption{Consumo medido de la fuente en distintos estados de operación.}\label{tab:consumo}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{Estado} & \textbf{Corriente [A]} & \textbf{Potencia [W]} ($P=V\,I$)\\
+\midrule
+En vacío (lógica encendida, drivers deshabilitados) & 0,27 & 3,0\\
+Motores energizados (torque de retención, nominal)  & 1,66 & 18,6\\
+Pinza cerrada haciendo fuerza (con motores energizados) & 2,20 & 24,6\\
+Picos transitorios & 2,40 & 26,9\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+De las mediciones se desprende que:
+\begin{itemize}
+  \item Los tres ejes energizados agregan \SI{1,39}{\ampere} (\SI{15,6}{\watt}), un consumo
+        que existe aun con el brazo detenido, porque los drivers mantienen la corriente de
+        retención.
+  \item El servo haciendo fuerza agrega \SI{0,54}{\ampere}. Como se alimenta del KIA7805 lineal,
+        esa corriente circula por el regulador con una caída de \SI{6,2}{\volt}, lo que
+        representa unos \SI{3,3}{\watt} de disipación (verificación térmica en el
+        Anexo~\ref{anx:calculos}).
+  \item El pico de \SI{2,4}{\ampere} (arranques simultáneos y cierre de pinza) está muy por
+        debajo de la capacidad del riel de \SI{12}{\volt} de una fuente AT.
+\end{itemize}
+
+\subsection{Especificaciones técnicas finales}
+
+\begin{table}[H]
+\centering\small
+\caption{Especificaciones técnicas del prototipo \tails.}\label{tab:specs}
+\begin{tabularx}{\textwidth}{@{}l X@{}}
+\toprule
+\textbf{Parámetro} & \textbf{Valor}\\
+\midrule
+Grados de libertad & 3 (base, hombro, codo) + efector final tipo pinza\\
+Alimentación & Fuente AT, riel de \SI{12}{\volt} (\SI{11,2}{\volt} medidos en vacío)\\
+Consumo & \SI{0,27}{\ampere} en vacío; \SI{1,66}{\ampere} con motores energizados; \SI{2,2}{\ampere} con la pinza haciendo fuerza; picos de \SI{2,4}{\ampere}\\
+Potencia & \SIrange{3}{27}{\watt}\\
+Autonomía & No aplica (alimentación de red)\\
+Rango de trabajo (pasos) & X: 0--580 \quad Y: 0--130 \quad Z: 0--60\\
+Rango articular & X: $\approx$\ang{184}; \ Y: $\approx$\ang{95}; \ Z: $\approx$\ang{91} (con las relaciones de la Tabla~\ref{tab:transmision}; Z según el paso de \ang{3,75} del firmware)\\
+Resolución & Paso completo del motor: \ang{1,8} (X, Y) y \ang{3,75} (Z). Resolución articular por paso: \ang{0,32} (X), \ang{0,73} (Y) y \ang{1,52} (Z)\\
+Velocidad de paso & \SIrange{50}{1000}{pasos/s} (\SIrange{15}{286}{rpm} en un motor de \ang{1,8})\\
+Aceleración & \SI{5}{pasos/s} por paso; \SI{0,6}{\second} de 50 a \SI{1000}{pasos/s}\\
+Pinza & \ang{0}--\ang{180} configurables; resolución \ang{0,095}\\
+Comunicación & USB 2.0 Full Speed, clase CDC; telemetría hasta 20 tramas/s y \emph{heartbeat} cada \SI{2}{\second}\\
+Latencia de parada (teórica) & $\le\SI{50}{\micro\second}$ desde la interrupción de E-STOP hasta el cese de pulsos (un tick de TIM2)\\
+Ritmo de ejecución de rutinas & \SI{1,5}{\second} por punto + espera configurable (0--\SI{60}{\second})\\
+Tiempo de \emph{homing} & \SI{15,6}{\second} completo (Y \SI{3,53}{\second}, Z \SI{1,19}{\second}, X \SI{10,87}{\second}); \emph{timeout} de búsqueda \SI{16}{\second} en X y \SI{10}{\second} en Y/Z\\
+Repetibilidad & \TODO{medir (ver método abajo)}\\
+Alcance / área de trabajo & \TODO{medir sobre el robot; las piezas se imprimieron a escala 1:1, por lo que aplican las dimensiones del MK2 Plus original. Expresar en mm}\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\paragraph{Método propuesto para medir la repetibilidad.}
+\TODO{completar con datos.} Fijar un comparador o una marca de referencia en un punto del área
+de trabajo. Ejecutar 10 ciclos \emph{homing} $\rightarrow$ punto de prueba $\rightarrow$
+posición de reposo, y registrar la desviación del efector respecto de la referencia en cada
+ciclo. Informar la media y el desvío estándar. Repetir a velocidad global de 30~\% y de
+100~\% para detectar pérdida de pasos.
+
+\fig[0.8\textwidth]{resultado_final}{Prototipo final de \tails{} en operación.}{fig:final}{foto del robot final tomando una pieza}

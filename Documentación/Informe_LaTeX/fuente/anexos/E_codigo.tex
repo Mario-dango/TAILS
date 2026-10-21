@@ -1,0 +1,184 @@
+% ============================================================
+\section{Fragmentos principales del código fuente}\label{anx:codigo}
+% ============================================================
+Fragmentos del firmware \texttt{programa/RobotArm}, con comentarios resumidos. El código
+completo está en el repositorio del proyecto~\cite{repo}.
+
+\begin{lstlisting}[caption={Estructura de motor y constantes (\texttt{robot\_defines.h}).}]
+#define NUM_MOTORS       3
+#define TIMER_FREQUENCY  20000      // Frecuencia de la ISR de pasos (TIM2) [Hz]
+#define MAX_POS_X 580               // Topes articulares [pasos]
+#define MAX_POS_Y 130
+#define MAX_POS_Z 60
+#define STATE_IDLE 0
+#define STATE_HOMING 1
+#define STATE_MOVING 2
+#define STATE_ESTOP 99
+
+typedef struct {
+    GPIO_TypeDef *stepPort;  uint16_t stepPin;
+    GPIO_TypeDef *dirPort;   uint16_t dirPin;
+    int direction;                    // 0: hacia +, 1: hacia -
+    volatile int velocity;            // Velocidad instantanea [pasos/s]
+    int microStepping;
+    volatile int currentPosition;     // Posicion actual [pasos]
+    volatile int newPosition;         // Destino [pasos]
+    int stepCounter;                  // Ticks de TIM2 desde el ultimo paso
+    volatile int stepInterval;        // Ticks entre pasos (N)
+    volatile int stopFlag;            // 1 = detenido
+    volatile int targetVelocity;      // Velocidad objetivo (crucero)
+    int minVelocity;                  // Velocidad de arranque
+    int accelRate;                    // Incremento por paso
+    int stepsToDecel;
+} StepperMotor;
+\end{lstlisting}
+
+\begin{lstlisting}[caption={Configuración de TIM2 (\texttt{tim.c}) y \emph{callbacks} de interrupción (\texttt{main.c}).}]
+htim2.Instance = TIM2;
+htim2.Init.Prescaler = 71;           // 72 MHz / 72 = 1 MHz
+htim2.Init.Period    = 49;           // 1 MHz / 50  = 20 kHz
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
+    if (htim->Instance == TIM2) Motor_Timer_Callback();  // Generacion de pasos
+    if (htim->Instance == TIM3) contSeconds++;           // Base de 1 s
+}
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
+    Motor_Sensor_Triggered(GPIO_Pin);   // Finales de carrera y E-STOP
+}
+\end{lstlisting}
+
+\begin{lstlisting}[caption={Generación de pasos en la ISR de TIM2 (\texttt{motor\_driver.c}).}]
+void Motor_Timer_Callback(void) {
+    if (robotState == STATE_ESTOP) return;           // Corte inmediato
+    for (int i = 0; i < NUM_MOTORS; i++) {
+        StepperMotor *m = &motors[i];
+        // Limite duro: sensor presionado y avanzando hacia el
+        if (IsSensorPressed(i) && m->direction == DIR_TOWARDS_HOME) {
+            m->stepInterval = 0; m->velocity = 0; m->stopFlag = 1; continue;
+        }
+        // Limite articular del extremo opuesto
+        if (robotCalibrated && robotState != STATE_HOMING &&
+            m->direction == DIR_AWAY_HOME && m->currentPosition >= motorMaxPos[i]) {
+            m->stepInterval = 0; m->velocity = 0; m->targetVelocity = 0;
+            m->stopFlag = 1; m->newPosition = m->currentPosition; continue;
+        }
+        if (m->stopFlag == 0 && m->stepInterval > 0) {
+            m->stepCounter++;
+            if (m->stepCounter >= m->stepInterval) {         // Flanco de subida
+                HAL_GPIO_WritePin(m->dirPort, m->dirPin, m->direction == 0 ? GPIO_PIN_SET : GPIO_PIN_RESET);
+                HAL_GPIO_WritePin(m->stepPort, m->stepPin, GPIO_PIN_SET);
+            }
+            if (m->stepCounter >= m->stepInterval + 1) {     // Flanco de bajada
+                HAL_GPIO_WritePin(m->stepPort, m->stepPin, GPIO_PIN_RESET);
+                m->stepCounter = 0;
+                m->currentPosition += (m->direction == 0) ? 1 : -1;
+                CalculateSpeed(m);                           // Rampa
+            }
+        }
+    }
+}
+\end{lstlisting}
+
+\begin{lstlisting}[caption={Perfil trapezoidal (\texttt{motor\_driver.c}).}]
+void CalculateSpeed(StepperMotor *m) {
+    long stepsRemaining = abs(m->newPosition - m->currentPosition);
+    if (stepsRemaining == 0) { m->velocity = 0; m->stepInterval = 0; m->stopFlag = 1; return; }
+    long stepsToStop = (m->accelRate > 0) ? ((m->velocity - m->minVelocity) / m->accelRate) : 0;
+    if (stepsRemaining <= stepsToStop) {                 // Desaceleracion
+        if (m->velocity > m->minVelocity) m->velocity -= m->accelRate;
+    } else if (m->velocity < m->targetVelocity) {        // Aceleracion
+        m->velocity += m->accelRate;
+        if (m->velocity > m->targetVelocity) m->velocity = m->targetVelocity;
+    }                                                    // (si no: crucero)
+    if (m->velocity < m->minVelocity) m->velocity = m->minVelocity;
+    m->stepInterval = (m->velocity == 0) ? 0 : TIMER_FREQUENCY / m->velocity;
+}
+\end{lstlisting}
+
+\begin{lstlisting}[caption={Atención de finales de carrera y parada de emergencia (\texttt{motor\_driver.c}).}]
+void Motor_EmergencyStop(void) {
+    ActivatedAll(-1);            // Velocidad e intervalo a 0 en los 3 ejes
+    robotState = STATE_ESTOP;    // Enclavamiento: solo :-R lo libera
+}
+
+void Motor_Sensor_Triggered(uint16_t GPIO_Pin) {
+    if (GPIO_Pin == STOP_btn_Pin) {
+        lastIrqSource = IRQ_SRC_ESTOP_BTN;   // Se reporta fuera de la ISR
+        Motor_EmergencyStop();
+    } else {
+        StepperMotor *m = NULL;
+        if      (GPIO_Pin == StopM_X_Pin) { m = &motors[0]; lastIrqSource = IRQ_SRC_LIMIT_X; }
+        else if (GPIO_Pin == StopM_Y_Pin) { m = &motors[1]; lastIrqSource = IRQ_SRC_LIMIT_Y; }
+        else if (GPIO_Pin == StopM_Z_Pin) { m = &motors[2]; lastIrqSource = IRQ_SRC_LIMIT_Z; }
+        if (m != NULL) {
+            m->velocity = 0; m->targetVelocity = 0; m->stepInterval = 0; m->stopFlag = 1;
+            m->newPosition = m->currentPosition;   // Meta alcanzada: evita reintentos
+        }
+    }
+}
+\end{lstlisting}
+
+\begin{lstlisting}[caption={Intérprete de comandos con enclavamiento de E-STOP (\texttt{robot\_logic.c}).}]
+void Robot_ProcesarComando(char *cmd) {
+    if (robotState == STATE_ESTOP) {                     // Solo se acepta :-R
+        if (cmd[0] == ':' && cmd[1] == '-' && cmd[2] == 'R') {
+            robotState = STATE_IDLE;
+            ActivatedAll(1);
+            USB_Print("SISTEMA DESBLOQUEADO. RECALIBRAR.\r\n");
+        } else {
+            USB_Print("ERROR: E-STOP ACTIVO. ENVIE ':-R' PARA REINICIAR.\r\n");
+        }
+        return;
+    }
+    if (cmd[0] != ':') return;
+    switch (cmd[1]) {
+        case '-':                                        // Calibracion / configuracion
+            if (cmd[2] == 'H') {
+                if (robotState == STATE_HOMING) break;   // Ignora :-H repetido
+                robotState = STATE_HOMING;
+                Robot_ModoCalibracion();
+                if (robotState != STATE_ESTOP) robotState = STATE_IDLE;
+            } else Robot_ModoCalibracion();
+            break;
+        case '#':                                        // Ejecucion
+            robotState = STATE_MOVING;
+            Robot_ModoEjecucion();
+            if (robotState != STATE_ESTOP) robotState = STATE_IDLE;
+            break;
+        case '+': Robot_ModoAprendizaje(); break;        // Aprendizaje (PC)
+        case '*': Robot_ModoTest();        break;        // Test / diagnostico
+        default:  USB_Print("Comando desconocido\r\n"); break;
+    }
+}
+\end{lstlisting}
+
+\begin{lstlisting}[caption={Modo ejecución: extracción de campos, recorte y programación de ejes (\texttt{robot\_logic.c}).}]
+uint8_t Robot_ModoEjecucion(void) {
+    int x = BuscarValor('X', buffer_rx);     // -1 si el campo no esta
+    int y = BuscarValor('Y', buffer_rx);
+    int z = BuscarValor('Z', buffer_rx);
+    int vpct = BuscarValor('V', buffer_rx);
+    if (vpct >= 10 && vpct <= 100) velocidadGlobal = vpct * 10;   // [pasos/s]
+    if (robotCalibrated) {
+        if (x >= 0) x = Robot_LimitarDestino(0, x);
+        if (y >= 0) y = Robot_LimitarDestino(1, y);
+        if (z >= 0) z = Robot_LimitarDestino(2, z);
+    }
+    if (x >= 0) moveMotors(&motors[0], &x, &velocidadGlobal);
+    if (y >= 0) moveMotors(&motors[1], &y, &velocidadGlobal);
+    if (z >= 0) moveMotors(&motors[2], &z, &velocidadGlobal);
+    if      (strchr(buffer_rx, 'C') != NULL) Gripper_Close();
+    else if (strchr(buffer_rx, 'A') != NULL) Gripper_Open();
+    return 0;
+}
+\end{lstlisting}
+
+\begin{lstlisting}[caption={Conversión de ángulo a PWM del servo (\texttt{gripper\_driver.c}).}]
+#define PULSE_MIN 550     // [us] -> 0 grados
+#define PULSE_MAX 2450    // [us] -> 180 grados
+void Gripper_SetAngle(uint16_t theta) {
+    if (theta > 180) theta = 180;
+    uint16_t pwm = (uint16_t)(theta * (PULSE_MAX - PULSE_MIN) / 180 + PULSE_MIN);
+    __HAL_TIM_SetCompare(&htim4, TIM_CHANNEL_4, pwm);   // TIM4 a 1 MHz: 1 cuenta = 1 us
+}
+\end{lstlisting}

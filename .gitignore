@@ -87,6 +87,28 @@ fp-info-cache/
 *.xml   
 
 # ==========================
+# LaTeX (Informe)
+# ==========================
+# Temporales de compilación (se regeneran al compilar)
+*.aux
+*.bbl
+*.blg
+*.toc
+*.lof
+*.lot
+*.out
+*.synctex.gz
+*.fls
+*.fdb_latexmk
+*.nav
+*.snm
+*.vrb
+# PDF compilado localmente (se regenera desde fuente/)
+Documentación/Informe_LaTeX/fuente/*.pdf
+# Borrador PDF generado (no versionar; se regenera con pdfLaTeX)
+Documentación/Informe_LaTeX/Informe_TAILS_borrador.pdf
+
+# ==========================
 # Qodo / Otros
 # ==========================
 .qodo

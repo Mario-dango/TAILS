@@ -1,0 +1,83 @@
+% ============================================================
+\section{Cálculos de diseño complementarios}\label{anx:calculos}
+% ============================================================
+
+\subsection{Verificación térmica del regulador KIA7805}
+La corriente del riel de \SI{5}{\volt} en el peor caso (pinza haciendo fuerza) se estima con
+el incremento de consumo medido y valores típicos para el resto de las cargas:
+\begin{equation}
+  I_{5V} \approx \underbrace{0{,}54}_{\text{servo}} + \underbrace{0{,}03}_{\text{LCD}} + \underbrace{0{,}05}_{\text{riel \SI{3,3}{\volt}}} \approx \SI{0,62}{\ampere}.
+\end{equation}
+La potencia disipada por el regulador lineal es
+\begin{equation}
+  P_D = (V_I - V_O)\,I_O = (11{,}2 - 5)\cdot 0{,}62 \approx \SI{3,8}{\watt}.
+\end{equation}
+Con resistencias térmicas típicas del encapsulado TO-220 ($R_{\theta JC}\approx\SI{5}{\celsius\per\watt}$,
+$R_{\theta JA}\approx\SI{65}{\celsius\per\watt}$ sin disipador), el aumento de temperatura sin disipador
+sería de $3{,}8\cdot 65\approx\SI{250}{\celsius}$, que activaría la protección térmica
+interna. Para $T_J\le\SI{125}{\celsius}$ con $T_A=\SI{40}{\celsius}$ se necesita
+\begin{equation}
+  R_{\theta SA} \le \frac{T_J - T_A}{P_D} - R_{\theta JC} - R_{\theta CS}
+  = \frac{125-40}{3{,}8} - 5 - 0{,}5 \approx \SI{17}{\celsius\per\watt}.
+\end{equation}
+En reposo ($I_{5V}\approx\SI{0,1}{\ampere}$, $P_D\approx\SI{0,6}{\watt}$) el regulador funciona
+sin problemas aun sin disipador. El caso crítico es mantener la pinza cerrada con fuerza
+durante mucho tiempo. En el prototipo el KIA7805 \textbf{lleva un disipador} de aletas para
+encapsulado TO-220; de acuerdo con el cálculo anterior basta con que su resistencia térmica sea
+$R_{\theta SA}\lesssim\SI{17}{\celsius\per\watt}$ —un valor holgado para un disipador pequeño con
+clip—, de modo que la unión se mantiene por debajo de \SI{125}{\celsius} aun en el peor caso.
+De todos modos conviene verificarlo midiendo la temperatura de la lengüeta con la pinza cerrada
+en régimen; a futuro, reemplazar el regulador lineal por uno conmutado (Sección~\ref{sec:conclusiones})
+elimina el problema de raíz.
+
+\subsection{Regulador LM317 de \SI{3,3}{\volt}}
+\begin{itemize}
+  \item \textbf{Ajuste:} $V_O = 1{,}25\,(1+R_2/R_1) + I_{\mathrm{ADJ}}R_2$. Con $R_1=\SI{330}{\ohm}$,
+        $R_2\approx\SI{541}{\ohm}$ en el preset de \SI{1}{\kilo\ohm}. El término
+        $I_{\mathrm{ADJ}}R_2\approx \SI{50}{\micro\ampere}\cdot\SI{541}{\ohm}\approx\SI{27}{\milli\volt}$
+        es despreciable.
+  \item \textbf{Carga mínima:} la corriente por $R_1$ es $1{,}25/330\approx\SI{3,8}{\milli\ampere}$,
+        dentro de la carga mínima que requiere el LM317 para regular.
+  \item \textbf{Tensión diferencial:} $V_I - V_O = 5 - 3{,}3 = \SI{1,7}{\volt}$, cercana a la
+        tensión de \emph{dropout} del LM317 (aprox.\ \SIrange{1,5}{2}{\volt} según la corriente).
+        Con la tolerancia del 7805 (\SI{4,8}{\volt}) el margen es mínimo. Funciona por la baja
+        corriente del riel, pero para una próxima revisión conviene un LDO de \SI{3,3}{\volt}.
+\end{itemize}
+
+\subsection{Indicador de final de carrera (BC558)}
+Si se tiene en cuenta la corriente de base, la corriente de emisor en conducción es
+\begin{equation}
+  I_E = \frac{V_{CC} - V_F - V_{EB} - V_{B}}{R_E},
+  \qquad V_B \approx V_{OL,\mathrm{sensor}} \approx 0
+  \;\Rightarrow\; I_E \approx \frac{3{,}3-2{,}0-0{,}7}{220} \approx \SI{2,7}{\milli\ampere}.
+\end{equation}
+La corriente que absorbe la salida del sensor es la de base
+($I_E/(\beta+1)\approx\SI{15}{\micro\ampere}$) más la del \emph{pull-up} de \SI{47}{\kilo\ohm}
+($3{,}3/47\,\mathrm{k}\approx\SI{70}{\micro\ampere}$) y la del \emph{pull-up} interno del STM32
+(aprox.\ \SI{80}{\micro\ampere}). En total son menos de \SI{0,2}{\milli\ampere}, compatibles con
+cualquier salida de colector abierto o con un contacto mecánico.
+
+\subsection{Presupuesto de tiempo de la ISR de TIM2}
+Una \emph{rutina de servicio de interrupción} (ISR, \emph{Interrupt Service Routine}) es la
+función que el procesador ejecuta de inmediato cuando se dispara un evento de hardware —aquí, el
+desborde periódico de TIM2—, suspendiendo el lazo principal hasta que termina. Por eso su
+duración debe ser mucho menor que el intervalo entre disparos: si la ISR tardara más que los
+\SI{50}{\micro\second} que separan dos desbordes, no quedaría tiempo para atender el USB ni el
+resto de las tareas.
+
+La ISR de TIM2 se ejecuta cada $T=\SI{50}{\micro\second}$, es decir, cada 3600 ciclos de CPU a
+\SI{72}{\mega\hertz}. En cada llamada recorre los tres motores con lecturas de GPIO (sensores),
+comparaciones y, cuando corresponde, escrituras de STEP/DIR y el recálculo de la rampa con una
+división entera.
+
+\paragraph{Método de medición propuesto.} La forma práctica de medir su duración es
+\emph{instrumentar} el código: poner en alto un pin de prueba (un GPIO libre) en la primera línea
+de la ISR y ponerlo en bajo en la última, y observar ese pin con un osciloscopio. El ancho del
+pulso es el tiempo de ejecución y el período entre pulsos confirma los \SI{50}{\micro\second}; la
+carga de CPU es (ancho del pulso)\,/\,\SI{50}{\micro\second}. Debe medirse el \textbf{peor caso},
+que ocurre cuando los tres ejes generan un flanco de paso en el mismo \emph{tick} (máximo de
+escrituras de GPIO y tres llamadas a \texttt{CalculateSpeed}, cada una con su división entera).
+La medición se hace con los tres ejes moviéndose a la vez —no eje por eje—, porque la ISR siempre
+recorre los tres motores en cada llamada. Se estima una carga menor al 15~\%, lo que dejaría
+amplio margen para el USB y el lazo principal; la medición con osciloscopio queda pendiente de
+realizar.

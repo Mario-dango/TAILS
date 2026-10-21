@@ -1,0 +1,107 @@
+% ============================================================
+\section{Etapas de montaje y ensayos realizados}\label{sec:ensayos}
+% ============================================================
+El desarrollo avanzó de forma incremental: cada periférico y módulo se validó en un proyecto
+de prueba independiente antes de integrarlo al firmware final. Esos proyectos se conservan en
+la carpeta \texttt{programa/} del repositorio~\cite{repo}.
+
+\subsection{Etapa 1: pruebas parciales por módulo}
+
+\begin{table}[H]
+\centering\small
+\caption{Proyectos de prueba de módulos y resultados obtenidos.}\label{tab:pruebas-modulos}
+\begin{tabularx}{\textwidth}{@{}p{2.5cm} X X@{}}
+\toprule
+\textbf{Proyecto} & \textbf{Objetivo / qué se ejercitó} & \textbf{Resultado}\\
+\midrule
+\texttt{testPorts} &
+Verificar los GPIO de la \emph{Blue Pill} conmutando salidas (PA1, PA2, PA8, PB4, PB5, PC13) cada \SI{1}{\second} con el reloj interno (HSI). &
+Se detectaron dos pines dañados (PB5 y PA1) que permanecían siempre en bajo. Como el diseño final usa PA1 (STEP~Y) y PB5 (LED WAIT), la \emph{Blue Pill} dañada se reemplazó.\\
+\texttt{test pap} &
+Primer movimiento de los tres drivers A4988: STEP conmutado cada \SI{100}{\milli\second} con \texttt{HAL\_Delay} e inversión de DIR cada 10 ciclos. &
+Se validó el cableado STEP/DIR de los tres ejes y el sentido de giro de cada motor, a baja velocidad (\SI{5}{pasos/s}).\\
+\texttt{EjeX-StopX} &
+Interrupciones externas con sensores de fin de carrera ópticos, TIM3 a \SI{1}{\hertz} con LED, y motor bipolar con STEP generado por PWM de TIM2 (\SI{100}{\hertz}). Se probó variar la velocidad modificando ARR/CCR1. &
+EXTI y TIM3 funcionaron correctamente. La variación de velocidad por PWM de hardware fue inestable: el motor se detenía bruscamente cuando CCR1 superaba a ARR o al pasar CCR1 de 0 a 1. Esto motivó el cambio de estrategia a un único timer base con contadores por eje (Sección~\ref{sec:prog-pasos}).\\
+\texttt{usb\_comand} &
+USB CDC: transmisión periódica de una cadena y encendido/apagado del LED según el carácter recibido. &
+Comunicación bidireccional con la PC sin conversor USB-serie. Se verificó el reloj de \SI{48}{\mega\hertz} para el USB.\\
+\texttt{USB-Eje-servo} &
+Integración de comandos USB, los tres ejes con la estructura \texttt{StepperMotor}, PWM del servo, LCD I\textsuperscript{2}C y LEDs de estado en un único \texttt{main.c}. &
+Primer prototipo funcional completo. Su tamaño (unas 900 líneas en un archivo) dificultaba el mantenimiento, y por eso se refactorizó en módulos en la versión final.\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\figura[0.9\textwidth]{montaje_protoboard}{Montaje de prueba sobre protoboard durante la etapa de ensayos por módulo.}{fig:protoboard}{foto de la etapa de protoboard (\texttt{Documentación/Fotos}, 2023)}{5.5cm}
+
+\subsection{Etapa 2: placa de control y montaje mecánico}
+Se fabricó y montó la PCB (Anexo~\ref{anx:pcb}), se imprimieron las piezas del brazo y los
+soportes de los finales de carrera, y se armó el conjunto. Antes de colocar la \emph{Blue
+Pill} y los drivers se verificaron los rieles de alimentación (testigos VCC, \SI{5}{\volt} y
+\SI{3,3}{\volt}), y se ajustó el preset del LM317 a \SI{3,3}{\volt} y la $V_{\mathrm{REF}}$
+de cada A4988.
+
+\begin{figure}[!htbp]
+\centering
+\begin{subfigure}{0.48\textwidth}\centering
+  \imagen{\linewidth}{4.5cm}{pcb_montada}
+  \caption{PCB montada con \emph{Blue Pill} y drivers.}
+\end{subfigure}\hfill
+\begin{subfigure}{0.48\textwidth}\centering
+  \imagen{\linewidth}{4.5cm}{montaje_mecanico}
+  \caption{Montaje mecánico con finales de carrera.}
+\end{subfigure}
+\caption{Etapa de montaje de la electrónica y la mecánica (fotos de \texttt{Documentación/Fotos/extra}).}\label{fig:montaje}
+\end{figure}
+
+\subsection{Etapa 3: integración y ensayos sobre el hardware real}
+Con el firmware modular (\texttt{RobotArm}) cargado en el robot montado se hicieron ensayos
+funcionales de cada modo. Los defectos encontrados y sus correcciones fueron:
+\begin{itemize}
+  \item \textbf{\emph{Homing} bloqueado:} la variable de segundos que incrementa la ISR de TIM3
+        no era \texttt{volatile}. El compilador la mantenía en un registro y la condición de
+        \emph{timeout} nunca cambiaba. Se la declaró \texttt{volatile} y los \emph{timeouts}
+        pasaron a medirse con \texttt{HAL\_GetTick()}. El mismo problema se corrigió en la bandera
+        \texttt{flagUsb}.
+  \item \textbf{Bucle en final de carrera:} cuando el destino quedaba más allá de un sensor,
+        el eje avanzaba unos pasos y se volvía a frenar con cada comando nuevo. Se resolvió
+        dando la meta por alcanzada en la interrupción.
+  \item \textbf{Extremo sin protección:} del lado opuesto al sensor no había tope. Se midieron
+        los recorridos útiles (X = 580, Y = 130, Z = 60 pasos) y se agregaron como límites en el
+        firmware y en la interfaz.
+  \item \textbf{Telemetría muda durante el \emph{homing}:} al ser una rutina bloqueante, la PC
+        no recibía tramas durante hasta \SI{10}{\second} por eje. Se agregó un latido que envía
+        telemetría dentro de las esperas.
+  \item \textbf{Parada por software durante el \emph{homing}:} el comando \cmd{:-S} no se
+        procesaba hasta terminar la rutina. Se lo atiende en la ISR de recepción USB.
+  \item \textbf{LCD ausente:} si el módulo no respondía, el sistema quedaba colgado en la
+        inicialización. Se incorporó la autodetección de dirección y el funcionamiento degradado
+        sin LCD.
+\end{itemize}
+
+\fig[0.8\textwidth]{ensayo_rutina}{Ensayo de una rutina de \emph{pick and place} aprendida (secuencia de fotos o captura del registro de ejecución).}{fig:ensayo-rutina}{secuencia de fotos del robot ejecutando \texttt{rut1.json} o captura de la consola}
+
+\subsection{Etapa 4: aseguramiento de calidad del software de PC}
+Para probar la interfaz sin depender del robot se implementó una batería de pruebas
+automatizadas con \texttt{pytest} y \texttt{pytest-qt}~\cite{pytestqt}:
+\begin{itemize}
+  \item \textbf{Pruebas unitarias:} guardado y carga de rutinas JSON sin pérdida de datos, y
+        robustez del \emph{parser} de telemetría ante tramas válidas, incompletas y basura
+        (p.~ej.\ \texttt{ASDF|X:??}).
+  \item \textbf{Pruebas de interfaz:} inyectan clics y teclas y verifican la tabla de
+        aprendizaje (agregar, borrar, reordenar), el temporizador de ejecución (inicio, pausa y
+        detención), la telemetría (LEDs de sensores, destellos WAIT/FINISH, recorte a límites) y
+        el contrato de nombres entre la Vista y el Controlador.
+  \item \textbf{Emulador de hardware} (\texttt{mock\_stm32.py}): un STM32 simulado sobre un
+        puerto COM virtual que responde con telemetría, para pruebas exploratorias.
+\end{itemize}
+Se complementó con un plan de pruebas manuales sobre el hardware real (22 casos, resumidos en
+el Anexo~\ref{anx:pruebas}): conexión y desconexión, \emph{homing} y su falla, límites
+articulares por interfaz y por firmware, parada por software y por botón, rearme, panel de
+test, integridad de rutinas y tiempos de espera.
+
+\subsection{Etapa 5: ensayo eléctrico de consumo}
+Con el medidor de tensión y corriente de la fuente se registró el consumo en distintos
+estados de operación (Tabla~\ref{tab:consumo}, Sección~\ref{sec:resultados}).
+\TODO{agregar foto del medidor durante el ensayo y, si es posible, medir la tensión bajo carga.}

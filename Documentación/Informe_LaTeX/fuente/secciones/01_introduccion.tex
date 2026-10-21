@@ -1,0 +1,60 @@
+% ============================================================
+\section{Introducción}\label{sec:intro}
+% ============================================================
+
+El presente trabajo integrador documenta el desarrollo de \tails{} (\emph{Technical
+Articulated Intelligent Linkage System}), un sistema mecatrónico compuesto por un brazo
+robótico articulado de tres grados de libertad (3-GDL) con un efector final tipo pinza
+(\emph{gripper}), una placa de control propia basada en el microcontrolador
+\textbf{STM32F103C8T6} (placa de desarrollo \emph{Blue Pill}) y una interfaz gráfica de
+escritorio para su operación desde una PC.
+
+\paragraph{Idea y motivación.}
+La consigna de la cátedra, planteada por el Prof.\ Iriarte, propuso desarrollar un robot
+manipulador con distintos modos operativos: (1)~calibrar los ejes; (2)~guardar posiciones
+articulares o trayectorias, aprendidas manualmente o cargadas por un puerto serie; y
+(3)~ejecutar esas posiciones o trayectorias. La propuesta incluía un conjunto de comandos de
+ejemplo —\cmd{:Att} para entrar al modo aprendizaje de la trayectoria \texttt{tt}, \cmd{:G}
+para guardar la posición actual como siguiente punto, \cmd{:Guuu,vvv,www} para guardar una
+posición articular arbitraria, \cmd{:Z} para terminar el aprendizaje, \cmd{:Ett} para ejecutar
+una trayectoria aprendida, \cmd{:Duuu,vvv,www} para ejecutar un punto directo y \cmd{:vvvv} para
+la velocidad global de 10 a 100~\%— y dejaba explícitamente abierta la posibilidad de replantear
+la funcionalidad, por ejemplo que cada punto aprendido incluyera una velocidad local, un tiempo
+de espera antes del siguiente movimiento y el estado del \emph{gripper}. El foco del trabajo
+está puesto en la \textbf{implementación sobre el
+microcontrolador}: configuración de periféricos (temporizadores, interrupciones externas,
+PWM, USB e I\textsuperscript{2}C), generación de pulsos para los drivers de motores paso a
+paso, gestión de la seguridad (finales de carrera y parada de emergencia) y un protocolo de
+comandos robusto entre la PC y el robot. Por este motivo, la cinemática del brazo no se
+aborda: el sistema trabaja en coordenadas articulares expresadas en pasos de motor.
+
+\paragraph{Punto de partida.}
+La estructura mecánica se basa en el diseño abierto \emph{Robot Arm MK2 Plus (Stepper Motor
+in Used)} publicado por el usuario \emph{jackyltle} en Thingiverse en septiembre de
+2017~\cite{thingiverse}, pensado para imprimirse en 3D por deposición de material fundido
+(FDM). El diseño original se controla con un Arduino UNO (ATmega328P), una \emph{shield} CNC
+y drivers Pololu A4988 para tres motores NEMA~17, y no contempla sensores de fin de carrera ni
+alojamientos para ellos. Sobre esa base se diseñaron soportes propios para los sensores, una
+carcasa para la PCB, una placa de control dedicada en KiCad y un firmware completamente nuevo
+para la arquitectura ARM Cortex-M3.
+
+\fig[0.75\textwidth]{mk2_original}{Brazo \emph{Robot Arm MK2 Plus} original, tomado como base mecánica~\cite{thingiverse}.}{fig:mk2}{render o foto del diseño original (carpeta \texttt{diseño 3D/jackyltle\_Structure/images})}
+
+\paragraph{Utilidad.}
+El sistema permite: (i) referenciar los ejes de forma automática (\emph{homing}) contra
+finales de carrera; (ii) mover el brazo manualmente (\emph{jogging}) desde la PC o el teclado
+y memorizar puntos con velocidad, espera y estado de pinza; (iii) guardar esas secuencias en
+archivos JSON y reproducirlas automáticamente, y (iv) detener el sistema en forma inmediata
+ante una emergencia, por botón físico o por software. Es una plataforma didáctica y de
+prototipado para tareas simples de \emph{pick and place}.
+
+\paragraph{Principios de funcionamiento.}
+Cada articulación es accionada por un motor paso a paso gobernado por un driver A4988 con
+interfaz STEP/DIR. El microcontrolador genera los trenes de pulsos a partir de una
+interrupción periódica de \SI{20}{\kilo\hertz}, aplicando un perfil de velocidad
+trapezoidal. La pinza utiliza un servomotor SG90 comandado por PWM a \SI{50}{\hertz}. La
+posición de cada eje se conoce en lazo abierto contando los pasos emitidos, referidos al cero
+que fija el \emph{homing}. La PC y el robot se comunican por USB (clase CDC, puerto COM
+virtual) mediante tramas ASCII, y el robot devuelve telemetría periódica de su estado.
+
+\fig[0.8\textwidth]{robot_general}{Vista general del brazo \tails{} con su electrónica de control.}{fig:robot-general}{foto del robot completo, p.~ej. \texttt{Documentación/Fotos/extra/TAILS.jpg}}

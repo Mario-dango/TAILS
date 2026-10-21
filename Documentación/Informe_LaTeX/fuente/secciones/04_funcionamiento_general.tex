@@ -1,0 +1,149 @@
+% ============================================================
+\section{Funcionamiento general}\label{sec:funcionamiento}
+% ============================================================
+
+\subsection{Funciones del controlador}
+El STM32 cumple las siguientes funciones:
+\begin{enumerate}
+  \item \textbf{Recepción e interpretación de comandos} ASCII enviados por la PC a través del
+        USB CDC (Anexo~\ref{anx:protocolo}).
+  \item \textbf{Generación de movimiento:} convierte cada destino articular (en pasos) y la
+        velocidad pedida en trenes de pulsos STEP/DIR con rampa trapezoidal, para los tres ejes
+        de forma simultánea.
+  \item \textbf{Referenciación (\emph{homing}):} lleva cada eje a su final de carrera, fija el
+        cero de máquina y habilita los límites articulares.
+  \item \textbf{Seguridad:} supervisa en tiempo real finales de carrera, límites articulares y
+        parada de emergencia, y bloquea el sistema cuando corresponde.
+  \item \textbf{Accionamiento de la pinza} mediante PWM.
+  \item \textbf{Realimentación al usuario:} telemetría periódica por USB, LCD y LEDs de estado.
+\end{enumerate}
+
+Las decisiones de más alto nivel quedan en la PC: la edición y almacenamiento de rutinas,
+el aprendizaje por \emph{jogging} y la secuenciación de la ejecución. Esta división
+responde a la consigna (aprender y ejecutar trayectorias) sin ocupar la memoria del
+microcontrolador con rutinas y permite editarlas y versionarlas como archivos.
+
+\subsection{Modos operativos}
+Los comandos se agrupan por prefijo, y cada prefijo corresponde a un modo operativo:
+
+\begin{description}[leftmargin=1.2cm, style=nextline]
+  \item[\cmd{:-} Calibración / configuración] \emph{Homing}, fijar cero, ángulos de apertura y
+        cierre de la pinza, habilitación de drivers, velocidad global, E-STOP por software,
+        rearme, \emph{handshake} y ayuda.
+  \item[\cmd{:\#} Ejecución] Movimiento absoluto a un punto articular
+        (\cmd{:\#X\ldots Y\ldots Z\ldots}), opcionalmente con velocidad propia del segmento
+        (\cmd{V}) y acción de pinza (\cmd{|A} / \cmd{|C}) en la misma trama.
+  \item[\cmd{:+} Aprendizaje] El aprendizaje se resuelve en la PC. El operador mueve el brazo
+        con \emph{jogging} (comandos \cmd{:\#}), captura el punto actual en una tabla junto con
+        velocidad, espera, estado de pinza y un nombre, y guarda la rutina como JSON. El
+        firmware sólo reconoce el prefijo.
+  \item[\cmd{:*} Test / diagnóstico] Accionamiento individual de LEDs, motores (movimiento
+        relativo) y pinza, para verificar el hardware sin calibración previa.
+\end{description}
+
+\subsection{Máquina de estados del firmware}
+El comportamiento global del firmware se rige por la variable \texttt{robotState}
+(Figura~\ref{fig:fsm}). En \textsc{Idle} el robot atiende comandos, y la generación de pasos
+sigue activa en la interrupción de TIM2 hasta que cada eje llega a su destino. El estado
+\textsc{Homing} es bloqueante: durante la búsqueda se sigue enviando telemetría y se sigue
+atendiendo la parada de emergencia. El estado \textsc{E-Stop} tiene prioridad sobre todos
+los demás: se entra por el botón físico (EXTI15) o por el comando \cmd{:-S} desde cualquier
+estado, y sólo se sale con \cmd{:-R}, que exige volver a calibrar.
+
+\begin{figure}[!htbp]
+\centering
+\begin{tikzpicture}[->, >={Stealth[length=2.5mm]}, thick, node distance=4.2cm, every edge/.style={draw=black!70}]
+  \node[estado, fill=green!10] (idle) {IDLE};
+  \node[estado, right=of idle] (mov) {MOVING};
+  \node[estado, left=of idle] (hom) {HOMING};
+  \node[estado, fill=red!12, below=2.6cm of idle] (estop) {E-STOP};
+  \draw ($(idle.north west)+(-1.2,0.9)$) -- node[above left,font=\scriptsize,pos=0.1]{reset / init} (idle.north west);
+  \path (idle) edge[bend left=20] node[above,font=\scriptsize,align=center]{\cmd{:\#X..Y..Z..}} (mov)
+        (mov)  edge[bend left=20] node[below,font=\scriptsize,align=center]{trama procesada\\(los pasos siguen en TIM2)} (idle)
+        (idle) edge[bend right=20] node[above,font=\scriptsize]{\cmd{:-H}} (hom)
+        (hom)  edge[bend right=20] node[below,font=\scriptsize,align=center]{fin OK / error\\(timeout, sensor)} (idle)
+        (idle) edge[bend left=15] node[right,font=\scriptsize]{PB15 / \cmd{:-S}} (estop)
+        (estop) edge[bend left=15] node[left,font=\scriptsize]{\cmd{:-R}} (idle)
+        (hom)  edge[bend right=15] node[below left,font=\scriptsize]{PB15 / \cmd{:-S}} (estop)
+        (mov)  edge[bend left=15] node[below right,font=\scriptsize]{PB15 / \cmd{:-S}} (estop);
+  \path (idle) edge[loop above, looseness=6, in=60, out=120] node[above=2pt,font=\scriptsize,align=center]{\cmd{:-Z :-V :-A :-P :-E :-I :-?}\\\cmd{:*} (test)} (idle);
+  \path (estop) edge[loop below] node[below,font=\scriptsize]{otros comandos: rechazados} (estop);
+\end{tikzpicture}
+\caption{Máquina de estados del firmware (\texttt{robotState}).}\label{fig:fsm}
+\end{figure}
+
+\subsection{Diagrama de flujo del programa principal}
+El programa se organiza como un \emph{super-loop} con interrupciones (Figura~\ref{fig:flujo-main}).
+Las tareas de tiempo real están en las rutinas de interrupción: generación de pasos en TIM2 y
+detección de sensores y E-STOP en EXTI. El lazo principal atiende los comandos USB y las
+tareas de fondo. La recepción USB (dentro de la interrupción del periférico USB) sólo copia la
+trama al \emph{buffer} y levanta la bandera \texttt{flagUsb}. El procesamiento se hace fuera
+de la interrupción.
+
+\begin{figure}[!htbp]
+\centering
+\begin{tikzpicture}[node distance=0.55cm]
+  \node[terminal] (ini) {Inicio};
+  \node[proceso, below=of ini, text width=5.2cm] (cfg) {\texttt{HAL\_Init}, reloj \SI{72}{\mega\hertz}, GPIO, USB, TIM2/3/4, I2C, NVIC EXTI15\_10};
+  \node[proceso, below=of cfg, text width=5.2cm] (per) {LCD, LEDs, drivers deshabilitados, pinza cerrada, \texttt{Motor\_Init}};
+  \node[proceso, below=of per, text width=5.2cm] (tim) {Arranque TIM2 (pasos) y TIM3 (\SI{1}{\hertz})};
+  \node[decision, below=0.7cm of tim] (usb) {¿\texttt{flagUsb}?};
+  \node[proceso, right=1.3cm of usb, text width=3.9cm, font=\scriptsize] (cmd) {\texttt{Robot\_ProcesarComando}\\ \texttt{flagUsb = 0}};
+  \node[proceso, below=0.7cm of usb, text width=5.2cm] (bg) {\texttt{moveMotors} (sondeo de ejes)\\ \texttt{Actualizar\_LCD} (cada \SI{300}{\milli\second})};
+  \node[proceso, below=of bg, text width=5.2cm] (irq) {\texttt{Robot\_ReportInterrupts} (log de IRQ)};
+  \node[proceso, below=of irq, text width=5.2cm] (tel) {\texttt{Robot\_UpdateTelemetry} (cada \SI{50}{\milli\second}, si hay cambios o cada \SI{2}{\second})};
+  \draw[flecha] (ini) -- (cfg); \draw[flecha] (cfg) -- (per); \draw[flecha] (per) -- (tim);
+  \draw[flecha] (tim) -- (usb);
+  \draw[flecha] (usb) -- node[above,font=\scriptsize]{sí} (cmd);
+  \draw[flecha] (usb) -- node[right,font=\scriptsize]{no} (bg);
+  \draw[flecha] (bg) -- (irq); \draw[flecha] (irq) -- (tel);
+  \draw[flecha] (cmd.south) |- (irq.east);
+  \draw[flecha] (tel.west) -- ++(-1.0,0) |- (usb.west);
+  % ISR laterales
+  \node[bloque, fill=red!8, font=\scriptsize, text width=3.4cm, right=4.9cm of tim] (isr1) {\textbf{ISR TIM2} (\SI{20}{\kilo\hertz})\\ pulsos STEP, rampa, límites};
+  \node[bloque, fill=red!8, font=\scriptsize, text width=3.4cm, below=0.3cm of isr1] (isr2) {\textbf{ISR EXTI 12--15}\\ finales de carrera / E-STOP};
+  \node[bloque, fill=red!8, font=\scriptsize, text width=3.4cm, above=0.3cm of isr1] (isr3) {\textbf{ISR USB} (CDC)\\ copia trama, \texttt{flagUsb=1}};
+  \node[bloque, fill=red!8, font=\scriptsize, text width=3.4cm, above=0.3cm of isr3] (isr4) {\textbf{ISR TIM3} (\SI{1}{\hertz})\\ \texttt{contSeconds++}};
+  \begin{scope}[on background layer]
+    \node[draw=red!50, dashed, rounded corners, fit=(isr1)(isr2)(isr3)(isr4), inner sep=5pt, label={[font=\scriptsize\bfseries, red!60!black]above:Interrupciones (asíncronas)}] {};
+  \end{scope}
+\end{tikzpicture}
+\caption{Diagrama de flujo del programa principal y rutinas de interrupción.}\label{fig:flujo-main}
+\end{figure}
+
+\subsection{Interacción entre módulos durante una rutina}
+Una operación típica sigue esta secuencia:
+\begin{enumerate}
+  \item La PC abre el puerto y envía \cmd{:-I}. El robot responde \texttt{TAILS USB OK},
+        informa si detectó el LCD y lo muestra en pantalla.
+  \item Con \cmd{:-H} el firmware habilita los drivers, abre la pinza y referencia los ejes en
+        el orden Y (hombro), Z (codo) y X (base) (Sección~\ref{sec:prog-homing}). Al terminar,
+        fija el cero, enciende los LEDs HOME y FINISH y reporta \texttt{C:1} en la telemetría.
+  \item En la pestaña Aprendizaje el operador mueve el brazo con botones o teclado
+        (\emph{jogging}). Cada movimiento es un \cmd{:\#} absoluto y la interfaz actualiza su
+        posición con la telemetría \texttt{STATUS|X:..|Y:..|Z:..}. Luego guarda los puntos.
+  \item En la pestaña Ejecución se carga el JSON y se inicia la rutina. Un temporizador de la
+        PC envía un paso cada \SI{1,5}{\second} más la espera propia del punto, en tramas del
+        tipo \cmd{:\#X332Y71Z17V060|C}. El firmware recorta el destino a los límites del eje,
+        programa los tres motores, que se mueven de forma simultánea, y acciona la pinza.
+  \item Si se presiona el E-STOP, la interrupción corta la generación de pasos en el tick
+        siguiente. La telemetría informa \texttt{E:1} y la PC detiene la secuencia por su cuenta
+        y muestra la alarma. El sistema queda bloqueado hasta recibir \cmd{:-R}.
+\end{enumerate}
+
+\subsection{Capas de seguridad}
+La protección del sistema está distribuida en varias capas independientes:
+\begin{enumerate}
+  \item \textbf{Parada de emergencia} por hardware (EXTI15, prioridad 0) o por software
+        (\cmd{:-S}, procesado ya en la recepción USB), con enclavamiento hasta el rearme.
+  \item \textbf{Finales de carrera} en tiempo real: la interrupción EXTI frena el eje afectado,
+        y además la ISR de TIM2 verifica en cada tick que ningún eje avance contra un sensor
+        presionado.
+  \item \textbf{Límites articulares} en el extremo opuesto al sensor (\texttt{MAX\_POS}: X = 580,
+        Y = 130, Z = 60 pasos), aplicados tanto al recortar los destinos como en la ISR.
+  \item \textbf{Límites en la PC}: la interfaz acota el \emph{jogging}, la tabla de puntos y
+        las rutinas a los mismos rangos (\texttt{RANGO\_X/Y/Z}).
+  \item \textbf{Timeouts} en el \emph{homing} (\SI{10}{\second} por eje buscando el sensor,
+        \SI{5}{\second} para liberarlo) con mensajes de error descriptivos y parpadeo del LED
+        HOME.
+\end{enumerate}

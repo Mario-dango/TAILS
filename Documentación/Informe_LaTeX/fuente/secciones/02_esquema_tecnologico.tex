@@ -1,0 +1,70 @@
+% ============================================================
+\section{Esquema tecnológico}\label{sec:esquema}
+% ============================================================
+
+La Figura~\ref{fig:bloques} presenta el diagrama en bloques del sistema. El núcleo es la
+placa \emph{Blue Pill} con el STM32F103C8T6, que se vincula con los siguientes módulos:
+
+\begin{itemize}
+  \item \textbf{Alimentación:} fuente AT (riel de \SI{12}{\volt}, \SI{11,2}{\volt} medidos en
+        vacío) que alimenta directamente la etapa de potencia de los drivers (VMOT) y, a
+        través de reguladores lineales, los rieles de \SI{5}{\volt} (KIA7805) y
+        \SI{3,3}{\volt} (LM317). Un medidor integrado de tensión y corriente supervisa el
+        consumo de la fuente.
+  \item \textbf{Actuadores:} tres motores paso a paso (ejes X, Y, Z) con drivers Pololu A4988
+        comandados por señales STEP, DIR y una señal ENABLE común; un servomotor SG90 para la
+        pinza comandado por PWM.
+  \item \textbf{Sensores:} tres finales de carrera (uno por eje) con indicación luminosa en
+        placa, y un pulsador de parada de emergencia (E-STOP).
+  \item \textbf{Interfaz local:} display LCD 16$\times$2 con adaptador I\textsuperscript{2}C y
+        tres LEDs de estado (HOME, WAIT/BUSY y FINISH).
+  \item \textbf{Sistema externo:} PC con la interfaz gráfica \tails{} (Python/PyQt5),
+        conectada por USB (CDC) al puerto nativo del microcontrolador.
+\end{itemize}
+
+\fig[0.95\textwidth]{diagrama_bloques}{Diagrama en bloques del sistema \tails.}{fig:bloques}{\texttt{Documentación/Diagrama de Bloques.png} (renombrar a \texttt{diagrama\_bloques.png}). Nota: el bloque ``Regulador DC$\to$DC'' corresponde a reguladores lineales}
+
+La Tabla~\ref{tab:interfaces} resume las interfaces entre el controlador y cada módulo.
+
+\begin{table}[H]
+\centering\small
+\caption{Interfaces del controlador con los módulos del sistema.}\label{tab:interfaces}
+\begin{tabularx}{\textwidth}{@{}l l X@{}}
+\toprule
+\textbf{Módulo} & \textbf{Interfaz / periférico} & \textbf{Pines (STM32)}\\
+\midrule
+Drivers A4988 (X, Y, Z) & GPIO salida (STEP/DIR/EN) + TIM2 & STEP: PA2, PA1, PA0 --- DIR: PA5, PA4, PA3 --- EN: PB8\\
+Servo SG90 (pinza)      & TIM4 canal 4, PWM \SI{50}{\hertz} & PB9\\
+Finales de carrera      & GPIO entrada \emph{pull-up} + EXTI 12--14 & PB12 (X), PB13 (Y), PB14 (Z)\\
+Parada de emergencia    & GPIO entrada \emph{pull-up} + EXTI 15 & PB15\\
+LCD 16$\times$2         & I2C1 a \SI{100}{\kilo\hertz} & PB6 (SCL), PB7 (SDA)\\
+LEDs de estado          & GPIO salida & PB3 (Home), PB4 (Finish), PB5 (Wait), PC13 (placa)\\
+PC (interfaz gráfica)   & USB 2.0 FS, clase CDC & PA11 (D$-$), PA12 (D$+$)\\
+Depuración              & SWD & PA13, PA14\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Del lado de la PC, la aplicación se estructura según el patrón Modelo--Vista--Controlador
+(Figura~\ref{fig:mvc}). El \emph{Modelo} maneja el puerto serie y los archivos JSON de
+rutinas; la \emph{Vista} contiene sólo la interfaz gráfica, y el \emph{Controlador} se
+divide en gestores especializados (conexión, movimiento, aprendizaje y ejecución).
+
+\begin{figure}[!htbp]
+\centering
+\begin{tikzpicture}[node distance=0.6cm and 0.9cm]
+  \node[bloque, fill=green!8, minimum width=3.3cm] (view) {\textbf{Vista}\\ PyQt5 (pestañas,\\ paneles, consola)};
+  \node[bloque, fill=orange!10, right=1.2cm of view, minimum width=4.2cm, minimum height=2.6cm] (ctrl) {};
+  \node[font=\small\bfseries, anchor=north] at (ctrl.north) {Controlador};
+  \node[font=\scriptsize, align=left, anchor=north] at ($(ctrl.north)+(0,-0.45)$)
+       {MainController\\ ConnectionManager\\ MovementManager\\ LearningManager\\ ExecutionManager};
+  \node[bloque, fill=blue!8, right=1.2cm of ctrl, minimum width=3.0cm] (model) {\textbf{Modelo}\\ pySerial + JSON};
+  \node[bloque, fill=red!8, below=1.0cm of model] (stm) {\textbf{STM32}\\ firmware};
+  \node[bloque, fill=gray!10, below=1.0cm of ctrl] (json) {Rutinas \texttt{.json}};
+  \draw[flecha, <->] (view) -- node[above, font=\scriptsize]{señales/slots} (ctrl);
+  \draw[flecha, <->] (ctrl) -- (model);
+  \draw[flecha, <->] (model) -- node[right, font=\scriptsize, align=left]{USB CDC\\ comandos / telemetría} (stm);
+  \draw[flecha, <->] (model) |- (json);
+\end{tikzpicture}
+\caption{Arquitectura de software de la interfaz de PC (patrón MVC).}\label{fig:mvc}
+\end{figure}

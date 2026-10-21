@@ -1,0 +1,67 @@
+% ============================================================
+\section{Protocolo de comandos}\label{anx:protocolo}
+% ============================================================
+Todas las tramas son ASCII, comienzan con \cmd{:} y terminan en fin de línea. El segundo
+carácter indica el modo. Durante un E-STOP se rechazan todos los comandos salvo \cmd{:-R}.
+
+{\small
+\begin{longtable}{@{}p{2.9cm} p{3.9cm} p{8.2cm}@{}}
+\caption{Comandos del firmware \tails.}\label{tab:protocolo}\\
+\toprule
+\textbf{Comando} & \textbf{Formato} & \textbf{Acción}\\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Comando} & \textbf{Formato} & \textbf{Acción}\\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\multicolumn{3}{@{}l}{\emph{Calibración / configuración --- prefijo} \cmd{:-}}\\
+Homing & \cmd{:-H} & Busca los tres finales de carrera (Y, Z, X) y fija el cero. Bloqueante.\\
+Set Zero & \cmd{:-Z} & Toma la posición actual como (0,0,0) y marca calibrado.\\
+Apertura de pinza & \cmd{:-A<grados>} & Ángulo de apertura (0--180). Ej.: \cmd{:-A120}.\\
+Cierre de pinza & \cmd{:-P<grados>} & Ángulo de cierre (0--180). Ej.: \cmd{:-P030}.\\
+Enable motores & \cmd{:-E<0|1>} & 1: torque habilitado, 0: motores libres.\\
+Velocidad global & \cmd{:-V<nnn>} & 010--100~\% $\rightarrow$ $v=10\cdot\%$ pasos/s. Ej.: \cmd{:-V050}.\\
+Parada por software & \cmd{:-S} & E-STOP enclavado, idéntico al botón físico.\\
+Rearme & \cmd{:-R} & Sale de E-STOP, rehabilita drivers y pide recalibrar.\\
+Handshake & \cmd{:-I} & Responde \texttt{TAILS USB OK} y el estado del LCD.\\
+Ayuda & \cmd{:-?} / \cmd{:-?<L>} & Lista de comandos / ejemplo del comando \texttt{L}.\\
+\midrule
+\multicolumn{3}{@{}l}{\emph{Ejecución --- prefijo} \cmd{:\#}}\\
+Mover & \cmd{:\#X<n>Y<n>Z<n>} & Posición absoluta en pasos. Cada eje es opcional.\\
+Mover con velocidad & \cmd{:\#X..Y..Z..V<nnn>} & Igual, con velocidad del segmento (010--100).\\
+Pinza & \cmd{:\#A} / \cmd{:\#C} & Abre / cierra la pinza.\\
+Combinado & \cmd{:\#X332Y71Z17V060|C} & Movimiento, velocidad y pinza en una trama.\\
+\midrule
+\multicolumn{3}{@{}l}{\emph{Aprendizaje --- prefijo} \cmd{:+}}\\
+Aprendizaje & \cmd{:+} & Gestionado por la PC. El firmware solo responde.\\
+\midrule
+\multicolumn{3}{@{}l}{\emph{Test / diagnóstico --- prefijo} \cmd{:*}}\\
+LED & \cmd{:*L<H|W|F|P><0|1>} & Enciende o apaga el LED Home, Wait, Finish o el de placa.\\
+Motor & \cmd{:*M<X|Y|Z><+|-><nnn>} & Movimiento relativo de un eje en pasos. Ej.: \cmd{:*MX+100}.\\
+Pinza & \cmd{:*G<A|C>} & Abre / cierra la pinza.\\
+\end{longtable}
+}
+
+\paragraph{Mensajes del robot hacia la PC.}
+\begin{itemize}
+  \item \textbf{Telemetría:} \texttt{STATUS|X:<x>|Y:<y>|Z:<z>|S:<sx><sy><sz>|C:<0/1>|M:<0/1>|E:<0/1>}
+        --- posición, sensores activos, calibrado, en movimiento, E-STOP activo.
+  \item \textbf{Registro de interrupciones:} \texttt{IRQ|E-STOP: boton fisico (PB15)},
+        \texttt{IRQ|E-STOP: comando :-S (software)}, \texttt{IRQ|Fin de carrera: eje X (PB12)}.
+  \item \textbf{Avisos y errores:} \texttt{AVISO|...},\\
+        \texttt{Homing Error <código>: <motivo>},\\
+        \texttt{ERROR: E-STOP ACTIVO. ENVIE ':-R' PARA REINICIAR.}
+\end{itemize}
+
+\paragraph{Formato de rutina (JSON).}
+\begin{lstlisting}[language={}, caption={Ejemplo de rutina guardada por la interfaz.}]
+[
+  {"type": "MOV", "x": 0,   "y": 30, "z": 24, "g": "A", "v": 50, "t": 0,   "n": "Aproximar"},
+  {"type": "MOV", "x": 0,   "y": 30, "z": 24, "g": "C", "v": 30, "t": 1.0, "n": "Tomar pieza"},
+  {"type": "MOV", "x": 332, "y": 71, "z": 17, "g": "C", "v": 60, "t": 0,   "n": "Trasladar"},
+  {"type": "MOV", "x": 332, "y": 71, "z": 17, "g": "A", "v": 30, "t": 1.5, "n": "Soltar"}
+]
+\end{lstlisting}

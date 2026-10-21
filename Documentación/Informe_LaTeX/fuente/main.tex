@@ -1,0 +1,48 @@
+% ============================================================
+%  T.A.I.L.S. — Informe del Trabajo Integrador
+%  Microcontroladores y Electrónica de Potencia — FI UNCuyo
+%  Compilador: pdfLaTeX (Overleaf por defecto) — Bibliografía: BibTeX
+% ============================================================
+\documentclass[11pt,a4paper]{article}
+\input{preambulo}
+
+\begin{document}
+
+\input{portada}
+
+\pagenumbering{roman}
+\tableofcontents
+\clearpage
+\listoffigures
+\clearpage
+\pagenumbering{arabic}
+
+\input{secciones/01_introduccion}
+\input{secciones/02_esquema_tecnologico}
+\input{secciones/03_detalle_modulos}
+\input{secciones/04_funcionamiento_general}
+\input{secciones/05_programacion}
+\input{secciones/06_montaje_ensayos}
+\input{secciones/07_resultados}
+\input{secciones/08_conclusiones}
+
+\clearpage
+\phantomsection
+\addcontentsline{toc}{section}{Referencias}
+\renewcommand{\refname}{Referencias}
+\bibliographystyle{unsrt}
+\bibliography{referencias}
+
+\clearpage
+\appendix
+\phantomsection
+\addcontentsline{toc}{section}{Anexos}
+\titleformat{\section}{\normalfont\Large\bfseries}{Anexo \thesection.}{0.6em}{}
+\input{anexos/A_pinout}
+\input{anexos/B_protocolo}
+\input{anexos/C_calculos}
+\input{anexos/D_plan_pruebas}
+\input{anexos/E_codigo}
+\input{anexos/F_pcb_bom}
+
+\end{document}

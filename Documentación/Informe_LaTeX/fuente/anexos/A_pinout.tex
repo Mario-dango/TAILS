@@ -1,0 +1,42 @@
+% ============================================================
+\section{Asignación de pines}\label{anx:pinout}
+% ============================================================
+Asignación definitiva según \texttt{Core/Inc/main.h} del proyecto \texttt{RobotArm}. Los finales
+de carrera se conectan físicamente en los conectores \texttt{J13} (eje X), \texttt{J14} (eje Y) y
+\texttt{J15} (eje Z). En la placa, las etiquetas de serigrafía de los conectores de los ejes X y
+Z quedaron cruzadas respecto de la red del esquemático, por lo que al cablear debe respetarse la
+correspondencia \texttt{J13}$\rightarrow$X, \texttt{J14}$\rightarrow$Y y \texttt{J15}$\rightarrow$Z.
+
+\begin{table}[H]
+\centering\small
+\caption{Asignación de pines del STM32F103C8T6.}\label{tab:pinout}
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Pin} & \textbf{Etiqueta} & \textbf{Modo} & \textbf{Función}\\
+\midrule
+PA0  & StepM\_Z   & GPIO salida & STEP driver eje Z (codo)\\
+PA1  & StepM\_Y   & GPIO salida & STEP driver eje Y (hombro)\\
+PA2  & StepM\_X   & GPIO salida & STEP driver eje X (base)\\
+PA3  & DirM\_Z    & GPIO salida & DIR driver eje Z\\
+PA4  & DirM\_Y    & GPIO salida & DIR driver eje Y\\
+PA5  & DirM\_X    & GPIO salida & DIR driver eje X\\
+PA11 & USB\_DM    & USB         & USB D$-$\\
+PA12 & USB\_DP    & USB         & USB D$+$\\
+PA13 & SWDIO      & SYS         & Depuración SWD\\
+PA14 & SWCLK      & SYS         & Depuración SWD\\
+PB3  & Home\_led  & GPIO salida & LED HOME (calibrado)\\
+PB4  & Finish\_led& GPIO salida & LED FINISH (movimiento terminado)\\
+PB5  & Wait\_led  & GPIO salida & LED WAIT/BUSY (en movimiento)\\
+PB6  & I2C1\_SCL  & I2C         & LCD 16$\times$2\\
+PB7  & I2C1\_SDA  & I2C         & LCD 16$\times$2\\
+PB8  & EnableMotors & GPIO salida & ENABLE común de los A4988 (activo en bajo)\\
+PB9  & Gripper\_pin & TIM4\_CH4 (PWM) & Servo SG90\\
+PB12 & StopM\_X   & EXTI12, \emph{pull-up} & Final de carrera eje X\\
+PB13 & StopM\_Y   & EXTI13, \emph{pull-up} & Final de carrera eje Y\\
+PB14 & StopM\_Z   & EXTI14, \emph{pull-up} & Final de carrera eje Z\\
+PB15 & STOP\_btn  & EXTI15, \emph{pull-up} & Pulsador de parada de emergencia\\
+PC13 & LedPcb     & GPIO salida & LED de la \emph{Blue Pill}\\
+PD0/PD1 & OSC\_IN/OUT & RCC     & Cristal HSE \SI{8}{\mega\hertz}\\
+\bottomrule
+\end{tabular}
+\end{table}

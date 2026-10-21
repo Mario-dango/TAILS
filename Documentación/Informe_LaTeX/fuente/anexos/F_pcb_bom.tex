@@ -1,0 +1,32 @@
+% ============================================================
+\section{Esquemáticos, PCB y lista de materiales}\label{anx:pcb}
+% ============================================================
+Proyecto KiCad (versión 8 o superior): \texttt{PCB/robotArm.kicad\_pro}. La lista de materiales
+interactiva está en \texttt{PCB/bom/ibom.html}.
+
+\figura[\textwidth]{sch_completo}{Esquemático completo de la placa de control.}{fig:sch-completo}{\texttt{PCB/resources/schematic.png} (idealmente exportado a PDF desde KiCad para conservar la resolución)}{9cm}
+
+\begin{figure}[!htbp]
+\centering
+\begin{subfigure}{0.48\textwidth}\centering
+  \imagen{\linewidth}{4.5cm}{sch_stm32}
+  \caption{Bloque del microcontrolador (\texttt{sch03.png}).}
+\end{subfigure}\hfill
+\begin{subfigure}{0.48\textwidth}\centering
+  \imagen{\linewidth}{4.5cm}{sch_drivers}
+  \caption{Drivers A4988 (\texttt{sch05.png} / \texttt{sch08.png}).}
+\end{subfigure}\\[6pt]
+\begin{subfigure}{0.48\textwidth}\centering
+  \imagen{\linewidth}{4.5cm}{sch_leds}
+  \caption{LEDs de estado y testigos (\texttt{sch06.png}).}
+\end{subfigure}\hfill
+\begin{subfigure}{0.48\textwidth}\centering
+  \imagen{\linewidth}{4.5cm}{sch_servo_estop}
+  \caption{Servo y parada de emergencia (\texttt{sch09.png} / \texttt{sch02.png}).}
+\end{subfigure}
+\caption{Bloques del esquemático.}\label{fig:sch-bloques}
+\end{figure}
+
+\figura[0.85\textwidth]{pcb_layout}{Layout de la PCB (ruteo y planos de masa).}{fig:layout}{\texttt{PCB/resources/layout.png} y \texttt{lay02.png}}{7cm}
+
+\figura[0.9\textwidth]{bom}{Lista de materiales de la placa.}{fig:bom}{\texttt{PCB/resources/boom.png}, o reemplazar por una tabla}{7cm}

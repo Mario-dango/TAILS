@@ -1,0 +1,214 @@
+% ============================================================
+\section{Detalle de módulos}\label{sec:modulos}
+% ============================================================
+Se describen las características principales de cada módulo y la forma en que se manejan.
+El detalle completo está en las hojas de datos citadas.
+
+% ------------------------------------------------------------
+\subsection{Controlador: STM32F103C8T6 (\emph{Blue Pill})}
+Microcontrolador de 32 bits con núcleo ARM Cortex-M3 de STMicroelectronics~\cite{stm32ds,rm0008}:
+\SI{64}{\kilo\byte} de Flash, \SI{20}{\kilo\byte} de SRAM, frecuencia máxima de
+\SI{72}{\mega\hertz}, 4 temporizadores de 16 bits, controlador de interrupciones NVIC con
+controlador de interrupciones externas EXTI (\emph{External Interrupt}), interfaces
+I\textsuperscript{2}C, SPI, USART y un periférico USB 2.0
+\emph{Full Speed} nativo. La placa \emph{Blue Pill} incorpora un cristal de \SI{8}{\mega\hertz},
+regulador de \SI{3,3}{\volt}, conector micro-USB (conectado a PA11/PA12) y el LED de usuario en
+PC13. Se programa y depura por SWD con un ST-Link desde STM32CubeIDE, usando la biblioteca
+HAL~\cite{hal}.
+
+Se eligió frente al Arduino UNO del diseño original por su mayor capacidad de cómputo, su
+USB nativo (sin conversor USB-serie), la cantidad de temporizadores y la flexibilidad del
+EXTI para asignar una interrupción independiente a cada sensor.
+
+\fig[0.6\textwidth]{pinout_stm32}{Asignación de pines del STM32F103C8T6 en STM32CubeMX.}{fig:pinout}{\texttt{Documentación/conf\_pines\_stm32f103c8t6.png}}
+
+% ------------------------------------------------------------
+\subsection{Motores paso a paso}
+Los tres ejes se accionan con motores paso a paso de tamaño NEMA~17 (\SI{42}{\milli\meter})
+recuperados de fotocopiadoras fuera de servicio: dos bipolares y uno unipolar, este último
+adaptado para funcionar como bipolar (se dejan sin conectar las tomas centrales de sus
+bobinados, de modo que cada fase se excita completa con polaridad reversible). La
+Tabla~\ref{tab:motores} resume los datos de las hojas de datos disponibles.
+
+\begin{table}[H]
+\centering\small
+\caption{Motores paso a paso utilizados.}\label{tab:motores}
+\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}p{2.6cm} cccc@{}}
+\toprule
+\textbf{Modelo} & \textbf{Tipo} & \textbf{Paso} & \textbf{Corriente} & \textbf{Resist.} & \textbf{Torque ret.}\\
+\midrule
+NMB 17PM-K049U~\cite{nmb17pm} & Híbrido, unipolar (6 hilos) & \ang{1,8} & \SI{1}{\ampere} & \SI{3,1}{\ohm} & \SI{200}{\milli\newton\meter}\\
+NMB PM42L-048~\cite{nmbpm42} & Imán permanente, bipolar & \ang{7,5} & \SI{0,6}{\ampere} & \SI{7}{\ohm} & ---\\
+\TODO{modelo del 2.º bipolar} & Bipolar & \ang{1,8} & --- & --- & ---\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\TODO{Confirmar qué motor acciona cada eje y completar la tabla (pendiente de relevar el modelo
+exacto). Datos provisionales anotados en el relevamiento: el motor unipolar (adaptado a bipolar)
+estaría en el eje X (base), mientras que los ejes Y y Z llevarían los dos motores bipolares.
+Marcas parciales registradas: ``17PM / J344 / G2VS'' y ``17PU / H502 / P5VS''. El firmware trata
+X (base) e Y (hombro) como motores de \ang{1,8} (200 pasos/vuelta) y Z (codo) como de \ang{3,75}
+(medio paso de un motor de \ang{7,5}, 48 pasos/vuelta); verificar el paso real de Z contra su
+hoja de datos.}
+
+\fig[0.7\textwidth]{motores}{Motores paso a paso recuperados utilizados en el proyecto.}{fig:motores}{fotos de \texttt{Documentación/Fotos/motores}}
+
+% ------------------------------------------------------------
+\subsection{Driver de motor paso a paso: Pololu A4988}
+El A4988 de Allegro~\cite{a4988,pololu} es un driver de micropasos para motores bipolares con
+doble puente H de MOSFET y regulación de corriente por \emph{chopper} (PWM de corriente
+constante). Admite una tensión de motor de \SIrange{8}{35}{\volt}, hasta \SI{2}{\ampere} por
+fase con disipación adecuada (aprox.\ \SI{1}{\ampere} sin disipador) y cinco resoluciones
+(paso completo, 1/2, 1/4, 1/8 y 1/16) seleccionadas con MS1--MS3. Incluye protección térmica,
+por subtensión y contra corriente cruzada.
+
+Se maneja con dos señales: cada flanco ascendente en \textbf{STEP} avanza un (micro)paso y el
+nivel de \textbf{DIR} fija el sentido. La entrada \textbf{ENABLE} es activa en bajo; en \tails{}
+las tres entradas están unidas a PB8, de modo que un único pin habilita o libera el torque de
+los tres ejes. Los tiempos mínimos que exige el driver (pulso STEP de \SI{1}{\micro\second},
+\emph{setup} de DIR de \SI{200}{\nano\second}) quedan ampliamente cubiertos por el pulso de
+\SI{50}{\micro\second} generado por el firmware. Se trabaja en \textbf{paso completo}.
+
+La corriente máxima por fase se ajusta con el potenciómetro del módulo según:
+\begin{equation}
+  I_{\max} = \frac{V_{\mathrm{REF}}}{8\,R_{\mathrm{CS}}}
+  \qquad\Rightarrow\qquad
+  V_{\mathrm{REF}} = 8\,R_{\mathrm{CS}}\,I_{\max}
+  \label{eq:vref}
+\end{equation}
+donde $R_{\mathrm{CS}}$ es la resistencia de sensado del módulo. Los módulos utilizados tienen
+$R_{\mathrm{CS}}=\SI{0,1}{\ohm}$, de modo que $I_{\max}=V_{\mathrm{REF}}/(8\,R_{\mathrm{CS}})=
+V_{\mathrm{REF}}/\SI{0,8}{\ohm}$. Las tensiones de referencia ajustadas con el potenciómetro de
+cada eje, y la corriente máxima por fase resultante, son:
+\begin{center}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+ & \textbf{Eje X (base)} & \textbf{Eje Y (hombro)} & \textbf{Eje Z (codo)}\\
+\midrule
+$V_{\mathrm{REF}}$       & \SI{610}{\milli\volt} & \SI{813}{\milli\volt} & \SI{623}{\milli\volt}\\
+$I_{\max}$ por fase      & \SI{0,76}{\ampere}    & \SI{1,02}{\ampere}    & \SI{0,78}{\ampere}\\
+\bottomrule
+\end{tabular}
+\end{center}
+Las referencias se ajustaron eje por eje para no superar la corriente admisible de cada motor y
+limitar el calentamiento de los drivers.
+
+\fig[0.55\textwidth]{a4988}{Módulo Pololu A4988 y su conexionado típico~\cite{pololu}.}{fig:a4988}{\texttt{Documentación/datasheets/A4988-Stepper-Motor-Driver-Pinout.jpg}}
+
+% ------------------------------------------------------------
+\subsection{Servomotor SG90 (pinza)}
+El SG90~\cite{sg90} es un microservo de \SI{9}{\gram} con alimentación de
+\SIrange{4,8}{6}{\volt}, recorrido aproximado de \ang{180} y torque de
+\SI{1,8}{\kilo\gram\centi\meter}. Internamente contiene un motor de CC, una caja reductora y
+un potenciómetro solidario al eje de salida. Un control interno compara la posición medida
+con la consigna, que se codifica como el ancho del pulso de una señal PWM de
+\SI{50}{\hertz} (período de \SI{20}{\milli\second}). En \tails{} se alimenta del riel de
+\SI{5}{\volt} y su señal sale de PB9 (TIM4\_CH4). El ángulo se asigna linealmente entre
+\SI{550}{\micro\second} (\ang{0}) y \SI{2450}{\micro\second} (\ang{180}) (ver
+Sección~\ref{sec:prog-pwm}). Los ángulos de apertura y cierre son configurables por comando.
+
+% ------------------------------------------------------------
+\subsection{Finales de carrera y su acondicionamiento}
+Cada eje tiene un final de carrera con conector de tres terminales (señal, \SI{3,3}{\volt},
+GND) montado en un soporte impreso diseñado para el proyecto. La señal es activa en bajo:
+llega a una entrada del STM32 configurada con \emph{pull-up} interno e interrupción externa por
+flanco, y en la placa tiene además un \emph{pull-up} de \SI{47}{\kilo\ohm} (Figura~\ref{fig:sch-fdc}).
+
+Cada línea gobierna también un transistor PNP \textbf{BC558}~\cite{bc558}. La base se conecta
+directamente a la señal y el emisor alimenta un LED testigo desde \SI{3,3}{\volt} a través de
+\SI{220}{\ohm}, con el colector a masa. Cuando el sensor se activa y lleva la línea a
+\SI{0}{\volt}, la unión base-emisor conduce y el LED enciende. Con la línea en alto, el
+transistor queda cortado. Así se obtiene indicación visual de cada sensor sin cargar la señal
+que lee el microcontrolador. La corriente de LED resulta aproximadamente
+\begin{equation}
+  I_{\mathrm{LED}} \approx \frac{V_{\mathrm{CC}} - V_{F} - V_{EB}}{R}
+  = \frac{\SI{3,3}{\volt} - \SI{2,0}{\volt} - \SI{0,7}{\volt}}{\SI{220}{\ohm}}
+  \approx \SI{2,7}{\milli\ampere},
+\end{equation}
+y la corriente de base que debe absorber el sensor es $I_B \approx I_{\mathrm{LED}}/\beta
+\approx \SI{15}{\micro\ampere}$ ($\beta\approx180$), despreciable.
+
+\fig[0.35\textwidth]{sch_finales_carrera}{Etapa de acondicionamiento e indicación de un final de carrera.}{fig:sch-fdc}{\texttt{PCB/resources/sch07.png} (o \texttt{sch01.png} con los tres ejes)}
+
+\fig[0.6\textwidth]{soportes_sensores}{Soportes de finales de carrera diseñados e impresos para el proyecto.}{fig:soportes}{render de \texttt{soporteSensor1/2.SLDPRT} o foto de los soportes montados}
+
+% ------------------------------------------------------------
+\subsection{Parada de emergencia}
+Un pulsador externo conectado a PB15 (activo en bajo, \emph{pull-up}) dispara la línea EXTI15
+con prioridad máxima. La acción se describe en la Sección~\ref{sec:funcionamiento}. En esta
+versión la parada detiene la generación de pulsos pero mantiene el torque de retención de los
+motores.
+
+% ------------------------------------------------------------
+\subsection{Display LCD 16$\times$2 con adaptador I\textsuperscript{2}C}
+Display alfanumérico HD44780 de 2 líneas de 16 caracteres con un expansor de E/S PCF8574
+(módulo ``LCD1602 I2C'')~\cite{lcd1602}. El controlador se maneja en modo 4 bits y cada nibble
+se envía como un byte por I\textsuperscript{2}C, que incluye además las líneas RS, EN y la
+retroiluminación. El firmware detecta la dirección del módulo al iniciar (0x27 ó 0x3F según
+la variante del PCF8574). Si no responde, el resto del sistema sigue funcionando sin
+bloquearse. Muestra el estado global, las coordenadas de los ejes y el estado de la pinza, y
+también los avisos de emergencia y de conexión USB.
+
+% ------------------------------------------------------------
+\subsection{Alimentación}
+La energía proviene de una fuente AT de PC, de la que se usa el riel de \SI{12}{\volt}
+(\SI{11,2}{\volt} medidos en vacío). La placa tiene tres rieles (Figura~\ref{fig:sch-alim}):
+\begin{itemize}
+  \item \textbf{VCC (\SI{12}{\volt}):} alimentación de potencia (VMOT) de los tres A4988.
+  \item \textbf{\SI{5}{\volt}:} regulador lineal \textbf{KIA7805} (TO-220)~\cite{kia7805}.
+        Alimenta el servo, el LCD y la entrada del regulador de \SI{3,3}{\volt}. Tiene capacitores
+        de \SI{470}{\micro\farad}\,+\,\SI{10}{\nano\farad} a la entrada y \SI{220}{\micro\farad}
+        a la salida, y un diodo 1N4007 de protección inversa.
+  \item \textbf{\SI{3,3}{\volt}:} regulador ajustable \textbf{LM317}~\cite{lm317}, alimentado desde
+        \SI{5}{\volt}, con $R_1=\SI{330}{\ohm}$ y un preset de \SI{1}{\kilo\ohm} como $R_2$:
+        \begin{equation}
+          V_{O} = 1{,}25\,\mathrm{V}\left(1+\frac{R_2}{R_1}\right)
+          \;\Rightarrow\;
+          R_2 = R_1\!\left(\frac{V_O}{1{,}25} - 1\right) = 330\left(\frac{3{,}3}{1{,}25}-1\right)\approx\SI{541}{\ohm}.
+        \end{equation}
+        Alimenta la lógica de sensores y los LEDs.
+\end{itemize}
+Un módulo medidor de tensión y corriente intercalado a la salida de la fuente permite
+monitorear el consumo (Sección~\ref{sec:resultados}). El Anexo~\ref{anx:calculos} desarrolla
+la verificación térmica de los reguladores.
+
+\fig[0.85\textwidth]{sch_alimentacion}{Etapa de alimentación: reguladores KIA7805 (\SI{5}{\volt}) y LM317 (\SI{3,3}{\volt}).}{fig:sch-alim}{\texttt{PCB/resources/sch04.png}}
+
+% ------------------------------------------------------------
+\subsection{Placa de control}
+Para reemplazar el cableado sobre protoboard se diseñó en KiCad una placa que integra la
+\emph{Blue Pill} (zócalo), tres zócalos para módulos A4988 con capacitores de desacople en VMOT
+y puentes de selección de micropaso, conectores para los motores, los finales de carrera, el
+servo, el E-STOP y el LCD, los reguladores, y LEDs de estado y testigos de tensión (VCC,
+\SI{5}{\volt}, \SI{3,3}{\volt}). El ruteo usa planos de masa y pistas de mayor ancho para VCC
+y VMOT. Los esquemáticos, el layout y la lista de materiales están en el Anexo~\ref{anx:pcb}.
+
+\fig[0.7\textwidth]{pcb_3d}{Modelo 3D de la placa de control diseñada en KiCad.}{fig:pcb3d}{\texttt{PCB/resources/model.png}}
+
+% ------------------------------------------------------------
+\subsection{Estructura mecánica}
+La estructura es la del MK2 Plus~\cite{thingiverse}, impresa en 3D. La base gira sobre un
+rodamiento impreso de bolillas mediante una transmisión por engranajes (eje X). El hombro
+(eje Y) y el codo (eje Z) se accionan con un mecanismo de paralelogramo que mantiene la
+orientación del efector. A esta base se agregaron los soportes de sensores y la carcasa de la
+PCB, diseñados en Solid Edge y SolidWorks.
+
+Cada eje incorpora una reducción por engranajes rectos entre el piñón del motor y el engranaje
+de salida (Tabla~\ref{tab:transmision}). Estas relaciones son las que permiten convertir los
+pasos de motor en desplazamiento articular (Sección~\ref{sec:resultados}).
+
+\begin{table}[H]
+\centering\small
+\caption{Relaciones de transmisión de cada eje (engranaje conducido / piñón del motor).}\label{tab:transmision}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+\textbf{Eje} & \textbf{Piñón (motor)} & \textbf{Conducido (salida)} & \textbf{Relación $i$} & \textbf{Módulo}\\
+\midrule
+X (base)               & 19 & 108 & 5,68 & 1\\
+Y (hombro)             & 19 & 47  & 2,47 & 1\\
+Z (codo)               & 19 & 47  & 2,47 & 1\\
+Pinza (\emph{gripper}) & 10 & 16  & 1,60 & 1,5\\
+\bottomrule
+\end{tabular}
+\end{table}

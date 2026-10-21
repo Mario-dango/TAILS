@@ -1,0 +1,140 @@
+% ============================================================
+\section{Conclusiones. Ensayo de ingeniería de producto}\label{sec:conclusiones}
+% ============================================================
+
+\subsection{Reflexión sobre el desarrollo}
+Se construyó un brazo robótico de 3-GDL funcional, controlado por un STM32F103C8T6 con placa
+propia y operado desde una interfaz gráfica que permite calibrar, aprender, guardar y ejecutar
+rutinas con velocidad, espera y estado de pinza por punto. Esto cubre los modos operativos
+planteados en la consigna.
+
+Desde el punto de vista de la materia, las principales lecciones fueron:
+\begin{itemize}
+  \item \textbf{Una base de tiempo única para varios ejes:} generar los pulsos con una sola
+        interrupción de \SI{20}{\kilo\hertz} y contadores por eje resultó más simple y robusto
+        que asignar un canal PWM de hardware a cada eje, que fue el primer intento y se
+        abandonó (Sección~\ref{sec:ensayos}). A cambio, aparece el error de cuantización
+        analizado en la Tabla~\ref{tab:cuantizacion}.
+  \item \textbf{Concurrencia entre ISR y lazo principal:} los defectos más difíciles de
+        encontrar fueron variables compartidas sin \texttt{volatile}, rutinas bloqueantes que
+        dejaban mudas otras tareas y transmisiones USB dentro de interrupciones. La regla que
+        se adoptó fue que las ISR solo marcan eventos y el lazo principal los atiende.
+  \item \textbf{Seguridad en capas:} ninguna protección alcanza por sí sola. El sensor, el
+        límite por software, la validación de la PC y la parada enclavada se cubren entre sí.
+  \item \textbf{Validación incremental:} los proyectos de prueba por módulo acortaron la
+        integración, y las pruebas automatizadas con un robot simulado permitieron modificar la
+        interfaz sin romperla.
+\end{itemize}
+
+\subsection{Perspectivas de mejora del prototipo}
+\begin{enumerate}
+  \item \textbf{Generación de pasos sin cuantización:} usar un acumulador de fase fraccionario
+        (tipo DDS) o canales de \emph{output compare} con recarga por DMA, e interpolar los tres
+        ejes (Bresenham) para que lleguen a la vez al destino.
+  \item \textbf{Robustez del firmware:} activar las secciones críticas que hoy están preparadas
+        pero vacías (\texttt{MOTOR\_ENTER\_CRITICAL}), asignar prioridades distintas en el NVIC
+        (hoy TIM2, TIM3, USB y EXTI comparten la prioridad 0), agregar \emph{watchdog}
+        independiente (IWDG) y un \emph{buffer} circular para la recepción USB.
+  \item \textbf{Operación autónoma:} guardar rutinas en la Flash del microcontrolador (como
+        proponía la consigna con \cmd{:Att}/\cmd{:Ett}) para ejecutarlas sin PC, y mostrar los
+        errores también en el LCD.
+  \item \textbf{Potencia y eficiencia:} reemplazar el KIA7805 por un regulador conmutado
+        \emph{buck}, reducir la corriente de retención de los motores en reposo y usar un LDO
+        para \SI{3,3}{\volt}.
+  \item \textbf{Parada de emergencia de hardware:} hoy la parada es por software y mantiene el
+        torque. Debería además cortar la energía de los actuadores (ENABLE o contactor) por una
+        vía independiente del microcontrolador.
+  \item \textbf{Movimiento:} microstepping de 1/8 para suavizar el movimiento y reducir la
+        resonancia, velocidad individual por eje (\cmd{:-v}, pendiente) y, a futuro, cinemática
+        para programar en coordenadas cartesianas.
+\end{enumerate}
+
+\subsection{Ensayo de ingeniería de producto: migración a un entorno industrial}
+Se plantea como ejercicio la evolución de \tails{} hacia una celda de manipulación para uso
+industrial liviano (por ejemplo, \emph{pick and place} en una línea de ensamblado). El
+entorno industrial agrega requisitos que el prototipo no tiene: operación continua, ruido
+electromagnético de variadores y contactores, cables largos, temperaturas de hasta
+\SI{50}{\celsius} en el tablero, seguridad normada y mantenibilidad. La
+Tabla~\ref{tab:producto} resume la selección de componentes propuesta. Los modelos citados son
+ejemplos representativos de cada categoría.
+
+\begin{table}[H]
+\centering\footnotesize
+\caption{Selección de componentes para la versión industrial.}\label{tab:producto}
+\begin{tabularx}{\textwidth}{@{}p{2.1cm} p{3.0cm} X@{}}
+\toprule
+\textbf{Subsistema} & \textbf{Prototipo} & \textbf{Propuesta industrial y justificación}\\
+\midrule
+Controlador & STM32F103 (\emph{Blue Pill}) & STM32F407/STM32G474 en grado industrial (\SIrange{-40}{105}{\celsius}) en placa propia de 4 capas: FPU para interpolación, más timers avanzados, CAN y Ethernet, IWDG. Alternativa: PLC con módulo de control de movimiento.\\
+Actuadores & NEMA 17 recuperados, lazo abierto & Motores paso a paso híbridos de lazo cerrado con encoder (p.~ej.\ NEMA 23 ``servo-stepper''), o servomotores de CA con encoder absoluto para ejes de mayor carga. Reductores planetarios o armónicos para eliminar el juego de los engranajes impresos.\\
+Drivers & A4988 (\SI{35}{\volt}, \SI{2}{\ampere}, sin aislamiento) & Drivers industriales de bus \SIrange{24}{48}{\volt} con entradas STEP/DIR optoacopladas, detección de pérdida de paso y entrada STO (\emph{Safe Torque Off}). En diseño embebido, TMC5160~\cite{tmc5160} (SPI, control de corriente silencioso, detección de atasco, reducción automática de corriente en reposo).\\
+Sensores de referencia & Finales de carrera ópticos a \SI{3,3}{\volt} & Sensores inductivos PNP de \SI{24}{\volt}, M12, IP67, inmunes a polvo y luz ambiente. Con encoders absolutos multivuelta se elimina el \emph{homing} al encender.\\
+Efector final & Servo SG90 & Pinza eléctrica paralela industrial con realimentación de fuerza, o pinza neumática con electroválvula 5/2 de \SI{24}{\volt} y presostato.\\
+Alimentación & AT \SI{12}{\volt} + reguladores lineales & Fuente conmutada para riel DIN de \SI{48}{\volt} (potencia) y \SI{24}{\volt} (control y sensores), con convertidores \emph{buck} a 5/\SI{3,3}{\volt}. Fusibles por rama y protección contra inversión y sobretensión (TVS).\\
+Comunicación & USB CDC (\SI{<3}{\meter}, sin aislamiento) & RS-485 (Modbus RTU) o CAN/CANopen con transceptores aislados (p.~ej.\ ISO1050~\cite{iso1050}), o Ethernet industrial (Modbus TCP, EtherCAT) para integrarse a un PLC o SCADA.\\
+Seguridad & E-STOP por software, mantiene torque & E-STOP bicanal con relé de seguridad que actúa sobre la entrada STO de los drivers y un contactor (parada categoría 0/1 según IEC 60204-1~\cite{iec60204}). Diseño según ISO 10218~\cite{iso10218} e ISO 13849-1 (PL~d). Resguardos y cortina de luz.\\
+Estructura & PLA impreso & Aluminio mecanizado o extruido. Gabinete IP54 con borneras y montaje en riel DIN.\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\paragraph{Instrumentación y estados de operación.}
+La instrumentación analógica industrial (sensores de posición, presión o fuerza) se transmite
+preferentemente por el lazo de corriente de \SIrange{4}{20}{\milli\ampere} en vez de por niveles
+de tensión: la magnitud viaja como \emph{corriente}, inmune a las caídas por resistencia de los
+cables largos y al ruido inducido, y el cero vivo en \SI{4}{\milli\ampere} (y no en
+\SI{0}{\milli\ampere}) permite detectar la rotura del lazo o la falla del sensor como diagnóstico
+de línea. Los finales de carrera y demás sensores discretos, en cambio, se llevan a entradas
+digitales de \SI{24}{\volt} optoacopladas. Sobre esa base, el control debe exponer una máquina de
+estados de operación explícita y segura ---por ejemplo \textsc{Apagado}, \textsc{Inicialización},
+\textsc{Referenciando} (\emph{homing}), \textsc{Listo}, \textsc{En ejecución}, \textsc{Pausa},
+\textsc{Parada de emergencia} y \textsc{Falla}--- con transiciones y enclavamientos acordes a la
+norma de uso de la celda: la salida del estado \textsc{Parada de emergencia} solo debe ser posible
+por rearme manual y con re-referenciación obligatoria, tal como ya hace el prototipo con el
+comando \cmd{:-R}.
+
+\paragraph{Interferencia electromagnética (EMI).}
+Los drivers conmutan corrientes de varios amperes con flancos rápidos (\emph{chopper} a
+decenas de kHz), lo que genera emisiones conducidas e irradiadas. A la vez, las entradas de
+sensores son sensibles a las perturbaciones inducidas en cables largos. Para cumplir con las
+normas genéricas de inmunidad y emisión para ambientes industriales (IEC 61000-6-2 y
+61000-6-4~\cite{iec61000}) se propone:
+\begin{itemize}
+  \item Cables de motor apantallados con la malla conectada a tierra en \ang{360} en el
+        gabinete, recorridos separados de los cables de señal y ferritas en los conductores de
+        potencia.
+  \item PCB de 4 capas con plano de masa continuo, lazos de alta $di/dt$ (puente H y
+        capacitores de VMOT) lo más chicos posible, capacitores electrolíticos y cerámicos junto
+        a cada driver, y masas de potencia y de lógica unidas en un único punto.
+  \item Entradas de sensores a \SI{24}{\volt} con filtro RC, disparador Schmitt, protección TVS y
+        antirrebote por software, en lugar de líneas de \SI{3,3}{\volt} con \emph{pull-up}.
+  \item Filtro de red a la entrada de la fuente y gabinete metálico puesto a tierra.
+\end{itemize}
+
+\paragraph{Acoplamiento entre etapas de potencia y control.}
+En el prototipo, la lógica y la potencia comparten masa y las señales STEP/DIR/ENABLE van
+directo del microcontrolador a los drivers, de modo que una falla en la etapa de potencia o un
+desplazamiento de masa por corrientes altas puede dañar el controlador. En la versión
+industrial se propone aislamiento galvánico entre ambos dominios: aisladores digitales
+(p.~ej.\ ISO7741~\cite{iso7741}) u optoacopladores rápidos en las señales de comando, un
+convertidor DC-DC aislado para la lógica del lado de potencia, y buses de comunicación
+aislados hacia el exterior. Así, el controlador queda protegido de transitorios y retornos de
+corriente de los motores.
+
+\paragraph{Eficiencia energética.}
+Un regulador lineal tiene rendimiento $\eta \approx V_O/V_I$. Del lado del riel de
+\SI{5}{\volt} del prototipo:
+\begin{equation}
+  \eta_{7805} = \frac{\SI{5}{\volt}}{\SI{11,2}{\volt}} \approx \SI{45}{\percent},
+  \qquad
+  P_{\mathrm{pérd}} = (11{,}2-5)\cdot 0{,}6 \approx \SI{3,7}{\watt}\ \ \text{(pinza con fuerza)}.
+\end{equation}
+Un convertidor \emph{buck} con $\eta\approx\SI{90}{\percent}$ entregaría los mismos
+\SI{3}{\watt} con unos \SI{0,33}{\watt} de pérdida, sin necesidad de disipador. El otro gran
+consumo es la corriente de retención: con \SI{15,6}{\watt} absorbidos por los motores
+detenidos, reducir la corriente en reposo al 50~\% baja las pérdidas en el cobre
+($P\propto I^2$) al 25~\%, alrededor de \SI{11}{\watt} menos, y reduce el calentamiento de
+motores y estructura. Este ahorro solo es aplicable si el torque residual alcanza para sostener
+la carga, o si se usan frenos o reductores irreversibles. Finalmente, pasar la potencia a
+\SI{48}{\volt} reduce a la cuarta parte la corriente de bus para la misma potencia y mejora la
+respuesta dinámica de los motores a alta velocidad.

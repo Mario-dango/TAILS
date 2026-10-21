@@ -1,0 +1,46 @@
+% ============================================================
+\section{Plan de pruebas}\label{anx:pruebas}
+% ============================================================
+Resumen del plan de pruebas manuales sobre el hardware real. El detalle de cada caso está en el
+archivo \texttt{interfaz/tests/manual/test\_plan.md} del repositorio. \TODO{completar la columna ``Resultado'' con el resultado de la última corrida.}
+
+{\small
+\begin{longtable}{@{}p{1.1cm} p{2.0cm} p{9.6cm} p{1.6cm}@{}}
+\caption{Casos de prueba manuales.}\label{tab:testplan}\\
+\toprule
+\textbf{ID} & \textbf{Módulo} & \textbf{Caso y criterio de aceptación} & \textbf{Resultado}\\
+\midrule
+\endfirsthead
+\toprule
+\textbf{ID} & \textbf{Módulo} & \textbf{Caso y criterio de aceptación} & \textbf{Resultado}\\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+TC-01 & Conexión & Conexión al STM32: la interfaz se desbloquea y la consola informa el puerto. & \\
+TC-02 & Seguridad & Desconexión física del USB: el programa no se cierra y bloquea los controles. & \\
+TC-03 & Calibración & \emph{Homing}: se envía \cmd{:-H}, WAIT parpadea, termina en HOME OK y (0,0,0). & \\
+TC-04 & \emph{Jogging} & Límites en la interfaz: X no sale de 0--580, Y de 0--130 ni Z de 0--60. & \\
+TC-05 & Ejecución & Parada por software durante una rutina: el robot se detiene, aparece la alarma y la rutina no continúa. & \\
+TC-06 & Seguridad & Botón físico: la PC detecta \texttt{E:1} por telemetría y se detiene sola. & \\
+TC-07 & Seguridad & Rearme con \cmd{:-R}: desaparece la alarma y se pide un nuevo \emph{homing}. & \\
+TC-08 & Calibración & Falla de \emph{homing} (eje obstruido o sensor desconectado): se informa el eje y el motivo, y el LED HOME parpadea. & \\
+TC-09 & Diagnóstico & Panel de test: cada LED y cada eje responden por separado. En E-STOP se rechazan los comandos. & \\
+TC-10 & Ayuda & \cmd{:-?} lista los comandos y \cmd{:-?V} muestra un ejemplo. & \\
+TC-11 & Aprendizaje & Integridad del JSON: los campos x/y/z/g/v/t coinciden con lo capturado, sin corrimientos. & \\
+TC-12 & UI & Atajos de teclado equivalentes a los botones. \texttt{Esc} dispara la parada. & \\
+TC-13 & UI & Modo Kawaii: los dos controles quedan sincronizados. & \\
+TC-14 & Seguridad & Límite por firmware: \cmd{:\#X999} se recorta a 580 con aviso. Ídem Y y Z. & \\
+TC-15 & Calibración & LEDs de finales de carrera en la interfaz, visibles durante el \emph{homing}. & \\
+TC-16 & UI & Destello de WAIT mientras hay movimiento y de FINISH al terminar. & \\
+TC-17 & Ejecución & El registro identifica cada paso por su nombre. & \\
+TC-18 & UI & Terminal acoplable: se puede mostrar, ocultar y hacer flotante, y conserva su posición. & \\
+TC-19 & Diagnóstico & Panel de test completo en pantallas de 1366$\times$768 o con escalado de 125~\%. & \\
+TC-20 & Ejecución & Espera por paso: con $t=\SI{4}{\second}$, pasan unos \SI{5,5}{\second} entre pasos (\SI{1,5}{\second} + \SI{4}{\second}). & \\
+TC-21 & Aprendizaje & Espera fuera de rango (\texttt{abc}, 90): aviso y restauración del último valor válido. & \\
+TC-22 & UI & El panel izquierdo mantiene las proporciones al ocultar y mostrar la terminal. & \\
+\end{longtable}
+}
+
+\paragraph{Pruebas automatizadas.} Se ejecutan con \texttt{python -m pytest} dentro de
+\texttt{interfaz/}. \TODO{pegar el resumen de la última ejecución (cantidad de pruebas aprobadas y duración).}
