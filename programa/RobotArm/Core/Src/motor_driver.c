@@ -46,13 +46,16 @@ __attribute__((weak)) void Motor_HomingTick(void) { }
 // --- CONFIGURACIÓN DE HOMING ---
 #define SPEED_STD       60  // Hz para Y y X (1.8°)
 #define SPEED_FAST      30  // Hz para Z (3.75°)
-#define TIMEOUT_SEC     10  // Tiempo máximo por eje buscando su fin de carrera
+#define TIMEOUT_SEC     10  // Tiempo máximo buscando el fin de carrera (ejes Y y Z)
+// El eje X recorre todo su rango (580 pasos a 60 pasos/s ~= 10,9 s medidos), así que necesita
+// más margen que Y/Z o reporta timeout justo cuando ya llegó al home. Ver RunHomingSequence().
+#define TIMEOUT_SEC_X   16  // Tiempo máximo buscando el fin de carrera (eje X, el más lento)
 #define BACKOFF_TIMEOUT_SEC 5 // Tiempo máximo para liberar un sensor ya presionado
 
 // --- Funciones Privadas ---
 // --- PROTOTIPOS DE FUNCIONES PRIVADAS ---
 void CalculateSpeed(StepperMotor *motor);
-static int RunHomingSequence(int motorIndex, int velocity, int direction);
+static int RunHomingSequence(int motorIndex, int velocity, int direction, uint32_t timeout_s);
 uint8_t IsSensorPressed(int motorIndex);
 
 // Inicializa valores por defecto para evitar basura en memoria
@@ -194,7 +197,7 @@ void CalculateSpeed(StepperMotor *m) {
 // Retorna: 0 si Éxito, -1 si Timeout
 /* Core/Src/motor_driver.c */
 
-static int RunHomingSequence(int motorIndex, int velocity, int direction) {
+static int RunHomingSequence(int motorIndex, int velocity, int direction, uint32_t timeout_s) {
 
     // Marca de tiempo para los timeouts de este eje (ver nota más abajo).
     uint32_t t0;
@@ -279,10 +282,10 @@ static int RunHomingSequence(int motorIndex, int velocity, int direction) {
     t0 = HAL_GetTick();
     // Usamos lectura directa también por seguridad redundante
     while (!IsSensorPressed(motorIndex)
-           && (HAL_GetTick() - t0) < (TIMEOUT_SEC * 1000U)
+           && (HAL_GetTick() - t0) < (timeout_s * 1000U)
            && robotState != STATE_ESTOP) {
         // Esta es LA espera larga del homing: sin el latido, la interfaz se pasa
-        // los 10s de búsqueda sin recibir nada y el LED del final de carrera se
+        // los ~10-16 s de búsqueda sin recibir nada y el LED del final de carrera se
         // enciende (si acaso) recién cuando ya se liberó en el back-off.
         Motor_HomingTick();
     }
@@ -308,7 +311,7 @@ int HomingMotors(uint8_t* hmX, uint8_t* hmY, uint8_t* hmZ) {
     int r; // resultado de cada eje (0 OK, -1 timeout, -5 sensor trabado, -9 E-STOP)
 
     // 1. HOMING Y (Hombro/Verde) - Levantar primero
-    r = RunHomingSequence(1, SPEED_STD, DIR_TOWARDS_HOME);
+    r = RunHomingSequence(1, SPEED_STD, DIR_TOWARDS_HOME, TIMEOUT_SEC);
     if (r != 0) {
         if (robotState == STATE_ESTOP) return -9; // No enmascarar el paro como "fallo de eje"
         return (r == -5) ? -12 : -2;              // -12 sensor trabado Y, -2 timeout Y
@@ -317,7 +320,7 @@ int HomingMotors(uint8_t* hmX, uint8_t* hmY, uint8_t* hmZ) {
     HAL_Delay(200);
 
     // 2. HOMING Z (Codo/Lila) - Recoger brazo
-    r = RunHomingSequence(2, SPEED_FAST, DIR_TOWARDS_HOME);
+    r = RunHomingSequence(2, SPEED_FAST, DIR_TOWARDS_HOME, TIMEOUT_SEC);
     if (r != 0) {
         if (robotState == STATE_ESTOP) return -9;
         return (r == -5) ? -13 : -3;              // -13 sensor trabado Z, -3 timeout Z
@@ -326,7 +329,7 @@ int HomingMotors(uint8_t* hmX, uint8_t* hmY, uint8_t* hmZ) {
     HAL_Delay(200);
 
     // 3. HOMING X (Base/Rojo) - Centrar giro
-    r = RunHomingSequence(0, SPEED_STD, DIR_TOWARDS_HOME);
+    r = RunHomingSequence(0, SPEED_STD, DIR_TOWARDS_HOME, TIMEOUT_SEC_X);
     if (r != 0) {
         if (robotState == STATE_ESTOP) return -9;
         return (r == -5) ? -11 : -1;              // -11 sensor trabado X, -1 timeout X
